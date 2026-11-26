@@ -5,7 +5,7 @@ Con la mano **quieta medio segundo** (que es cuando contar dedos es fiable):
 ==============================  ===========================  ==========================
 Gesto                           Cómo se reconoce             Qué hace
 ==============================  ===========================  ==========================
-Mano abierta (4-5 dedos)        dedos estables ≥ 4           sacar
+Mano abierta (3-5 dedos)        dedos ≥ 3                    sacar
 Pulgar e índice (una "L")       2 dedos muy separados        pausa / seguir
 Un dedo hacia arriba (👍 o ☝)   1 dedo con la punta arriba   revancha (al terminar)
 Dos dedos juntos (✌)            2 dedos casi paralelos       cambiar el tema que se ve
@@ -15,7 +15,8 @@ Los dedos se cuentan de dos formas (defectos del casco convexo y círculos
 alrededor de la palma) y se toma la mayor: es más común perder un dedo (se pega
 a otro, la piel se corta) que inventarlo. Los dos gestos de dos dedos se separan
 por el ángulo entre ellos visto desde el centro de la palma: en la "L" el pulgar
-y el índice se abren mucho (> 35°); en la ✌ el índice y el medio van casi juntos.
+y el índice se abren mucho (> 55°); en la ✌ el índice y el medio, menos (en fotos
+reales, entre 31° y 42°).
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from dataclasses import dataclass
 import numpy as np
 
 NOMBRES = {"abierta": "Sacar", "pulgar_indice": "Pausa", "dedo_arriba": "Revancha", "dos_dedos": "Cambiar tema"}
-ANGULO_L = 35.0  # grados entre las puntas desde los que dos dedos son pulgar e índice
+ANGULO_L = 55.0  # grados entre dedos desde los que son pulgar e índice (✌ reales: 31-42°; una L: 70-90°)
 
 
 def angulo_entre_puntas(centro, p1, p2) -> float:
@@ -44,7 +45,7 @@ def clasificar(analisis, n_dedos: int | None = None) -> str | None:
     if anillo is not None and anillo > n:
         n = anillo
     puntas, centro = analisis.puntas, analisis.centro_palma
-    if n >= 4:
+    if n >= 3:  # (al abrir la mano, a veces dos dedos se pegan y se cuentan como uno)
         return "abierta"
     if n == 2:
         angs = getattr(analisis, "angulos_anillo", [])

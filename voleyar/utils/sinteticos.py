@@ -252,6 +252,9 @@ def poligonos_mano(n_dedos: int, con_brazo: bool = True, dedos: tuple[str, ...] 
         (3.1, -2.85, 5.6, 1.4, -21),  # meñique
         (0.6, 3.4, 5.6, 2.0, 62),    # pulgar
     ]
+    if dedos is not None and set(dedos) == {"indice", "pulgar"}:
+        # Una L: el pulgar se abre casi en ángulo recto con el índice (en fotos reales, 70-90°)
+        geometria[4] = (0.6, 3.4, 5.6, 2.0, 100)
     elegidos = ([d for nombre, d in zip(NOMBRES_DEDOS, geometria) if nombre in dedos] if dedos is not None
                 else geometria[:n_dedos])
     for d in elegidos:

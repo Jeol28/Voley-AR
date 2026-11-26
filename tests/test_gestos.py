@@ -129,3 +129,43 @@ def test_si_se_pierde_un_dedo_el_conteo_por_anillo_lo_recupera():
 
     perdida = SimpleNamespace(**{**a.__dict__, "n_dedos": 3})  # los valles del casco vieron solo 3
     assert clasificar(perdida, 3) == "abierta"
+
+
+# ----------------------------------------------------- casos de fotos reales: un reloj separa mano y antebrazo
+def _mano_con_reloj(dedos, alto_reloj=26, pedacito_en_esquina=False):
+    """Silueta de una mano levantada cuyo antebrazo queda cortado por una correa oscura (sin piel)."""
+    import cv2
+
+    from voleyar.core import pipeline as pl
+
+    m = s.silueta_mano_2d(0, escala=16, angulo=90, dedos=dedos, tam=(360, 320))
+    ys = np.where(m.any(axis=1))[0]
+    muneca = int(ys.max() - 0.42 * (ys.max() - ys.min()))  # altura de la muñeca en la silueta
+    m[muneca:muneca + alto_reloj] = 0  # la correa del reloj no es piel
+    if pedacito_en_esquina:  # y solo un trocito de brazo asoma abajo, en la esquina
+        m[muneca + alto_reloj:] = 0
+        m[340:, :25] = 255
+    abajo = np.zeros_like(m)
+    abajo[-12:] = 255
+    return m, abajo, pl
+
+
+@pytest.mark.parametrize("pedacito", [False, True])
+def test_con_reloj_se_elige_la_mano_y_no_el_trozo_de_brazo(pedacito):
+    import cv2
+
+    m, abajo, pl = _mano_con_reloj(("indice", "medio"), pedacito_en_esquina=pedacito)
+    contorno, comp = pl.seleccionar_mano_pantalla(m, abajo, 300)
+    x, y, w, h = cv2.boundingRect(contorno)
+    assert y < 120  # incluye los dedos (arriba), no solo el trozo de antebrazo de abajo
+
+
+def test_con_reloj_se_leen_bien_los_gestos():
+    for dedos, esperado in [(("indice",), "dedo_arriba"), (("indice", "medio"), "dos_dedos"),
+                            (None, "abierta")]:
+        m, abajo, pl = _mano_con_reloj(dedos if dedos is not None else ("indice", "medio", "anular", "menique",
+                                                                         "pulgar"))
+        contorno, comp = pl.seleccionar_mano_pantalla(m, abajo, 300)
+        mano, info = pl.seg.separar_mano_brazo(comp)
+        a = car.analizar_mano(mano, info.direccion_brazo or (0.0, 1.0))
+        assert clasificar(a) == esperado, (dedos, a.n_dedos, a.n_anillo)

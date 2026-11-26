@@ -248,8 +248,59 @@ def seleccionar_mano_pantalla(mascara: np.ndarray, abajo: np.ndarray, area_min: 
     if not candidatos:
         return None, comp
     elegido = max(tocan, key=cv2.contourArea) if tocan else candidatos[0]
+    mayor = max(candidatos, key=cv2.contourArea)
+    franja = cv2.boundingRect(elegido)[3] < 0.12 * mascara.shape[0]
+    if tocan and franja and cv2.contourArea(mayor) > 4 * cv2.contourArea(elegido) \
+            and _mano_sobre_el_antebrazo(elegido, [mayor], mascara.shape[0]) is None:
+        # lo que toca el borde es solo una franja delgada (un trozo de brazo bajo el reloj): un antebrazo
+        # de verdad entra alto desde abajo. La mano es la región grande.
+        elegido = mayor
+    arriba = _mano_sobre_el_antebrazo(elegido, [c for c in candidatos if c is not elegido], mascara.shape[0])
+    if arriba is not None:  # un reloj, una pulsera o una manga separan la mano del antebrazo: se unen
+        unido = np.zeros_like(mascara)
+        cv2.drawContours(unido, [elegido, arriba], -1, 255, -1)
+        cv2.fillPoly(unido, [_puente(elegido, arriba)], 255)
+        cs_u = seg.contornos(unido, area_min)
+        if cs_u:
+            cv2.drawContours(comp, [cs_u[0]], -1, 255, -1)
+            return cs_u[0], comp  # (el puente no es piel, pero así el corte por la muñeca funciona igual)
     cv2.drawContours(comp, [elegido], -1, 255, -1)
     return elegido, cv2.bitwise_and(comp, mascara)
+
+
+def _mano_sobre_el_antebrazo(antebrazo, otros, alto_imagen: int | None = None):
+    """¿Hay una región justo encima del antebrazo, alineada con él y separada por un hueco corto?
+
+    Pasa con un reloj o una pulsera oscura: la piel de la mano y la del antebrazo
+    quedan en dos regiones. La de abajo toca el borde de la imagen; la mano está
+    encima, a menos de ~un ancho de muñeca. Si lo de abajo es un muñón corto, se acepta
+    que las cajas se solapen un poco (correa inclinada); si es alto, se exige un hueco
+    de verdad: una mano con su brazo justo debajo de una cara que Viola-Jones no vio
+    no debe unirse con ella. Se elige la mayor que cumpla.
+    """
+    x, y, w, h = cv2.boundingRect(antebrazo)
+    # Un muñón corto de antebrazo (bajo el reloj) puede quedar solapado con la mano si la correa va
+    # inclinada; si lo de abajo es alto (ya es una mano con su brazo) se exige un hueco de verdad.
+    corto = alto_imagen is not None and h < 0.3 * alto_imagen
+    hueco_min = -0.3 * h if corto else 2
+    mejor, area_mejor = None, 0.0
+    for c in otros:
+        bx, by, bw, bh = cv2.boundingRect(c)
+        hueco = y - (by + bh)  # de lo más bajo de la otra a lo más alto del antebrazo
+        cruce = min(x + w, bx + bw) - max(x, bx)
+        if hueco_min <= hueco <= max(0.9 * w, 20) and cruce > 0.3 * min(w, bw) and by < y:
+            a = cv2.contourArea(c)
+            if a > area_mejor:
+                mejor, area_mejor = c, a
+    return mejor
+
+
+def _puente(abajo, arriba, banda: int = 12) -> np.ndarray:
+    """Polígono que rellena el hueco entre la parte baja de ``arriba`` y la alta de ``abajo`` (casco convexo)."""
+    pa, pb = arriba.reshape(-1, 2), abajo.reshape(-1, 2)
+    ya, yb = pa[:, 1].max(), pb[:, 1].min()
+    sel = np.vstack([pa[pa[:, 1] >= ya - banda], pb[pb[:, 1] <= yb + banda]])
+    return cv2.convexHull(sel.astype(np.int32)).reshape(-1, 2)
 
 
 def _procesar_mano(lado: int, suav: np.ndarray, piel: his.ModeloPiel | None, prohibido: np.ndarray | None,
@@ -286,7 +337,10 @@ def _procesar_mano(lado: int, suav: np.ndarray, piel: his.ModeloPiel | None, pro
             r.uso_watershed = True
             r.componente = comp_ws
             r.mascara_mano, r.info_corte = seg.separar_mano_brazo(comp_ws, zona, config.metodo_corte)
-    r.analisis = car.analizar_mano(r.mascara_mano, r.info_corte.direccion_brazo, k_dedo=config.k_dedo)
+    # Si no se ve el antebrazo (un reloj o una manga lo tapan), se supone que viene de abajo: en el juego
+    # las manos se levantan frente a la cámara. Así la muñeca no se cuenta como un dedo.
+    brazo = r.info_corte.direccion_brazo or (0.0, 1.0)
+    r.analisis = car.analizar_mano(r.mascara_mano, brazo, k_dedo=config.k_dedo)
     if r.analisis is None:
         r.velocidad = vel.actualizar(None, t)
         if seguidor is not None:

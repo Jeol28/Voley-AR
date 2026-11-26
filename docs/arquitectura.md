@@ -180,7 +180,13 @@ frame → suavizado (filtros) → histograma de gris vs. referencia (Bhattachary
   y 2.1 radios de palma, mediana) y, si son dos, con el ángulo entre ellos (> 35° = pulgar e índice; si no, ✌).
   `LectorGestos` dispara un gesto tras 0.5 s con la palma casi quieta (< 0.5 radios por frame), tolera hasta 3
   frames sueltos mal leídos y lo dispara una sola vez hasta que cambie. "Guardar foto de mi mano" (solo en local,
-  carpeta `capturas_mano/`, fuera de git) guarda frame, máscaras y lecturas para afinar con fotos reales. Qué
+  carpeta `capturas_mano/`, fuera de git) guarda frame, máscaras y lecturas para afinar con fotos reales.
+- **Reloj o pulsera (aprendido de fotos reales):** la correa separa la mano del antebrazo y la región que entra por
+  abajo es solo un muñón. `seleccionar_mano_pantalla` une la mano de arriba con ese muñón (`_mano_sobre_el_antebrazo`
+  + `_puente`) si están alineados y a menos de un ancho de muñeca; si lo de abajo es solo una franja delgada en el
+  borde, elige la región grande. Sin antebrazo visible, el brazo se supone hacia abajo para no contar la muñeca como
+  dedo. Con 25 fotos reales (☝, 👍, ✌, ✋) se pasó de 0/25 a 25/25 gestos bien leídos; la ✌ real abre 31-42°, por
+  eso el límite de la L es 55°. Qué
   gestos valen depende del momento: sacar solo en el saque propio, revancha solo al terminar.
 - **Calibración:** la velocidad `vz` de la mano hacia la cámara es la pendiente de `Z = f·W/w` en los últimos
   0.3 s. Con `vz ≤ −60 cm/s` el golpe es un remate.
