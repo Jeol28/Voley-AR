@@ -7,10 +7,30 @@ from typing import Callable
 
 import gradio as gr
 
-from voleyar.ui.estado import EJEMPLOS, Frame, frame_desde_rgb, frame_ejemplo, rgb
+from voleyar.entorno import EN_SPACE
+from voleyar.ui.estado import EJEMPLOS, Frame, con_sesion, frame_desde_rgb, frame_ejemplo, rgb
 
 LATEX = [{"left": "$$", "right": "$$", "display": True}, {"left": "$", "right": "$", "display": False}]
 CAMARA_HD = gr.WebcamOptions(mirror=False, constraints={"video": {"width": {"ideal": 1280}, "height": {"ideal": 720}}})
+
+
+# En un Space varios visitantes transmiten a la vez; en local basta un flujo por evento.
+CONCURRENCIA_VIVO = 4 if EN_SPACE else 1
+_SESION: gr.State | None = None
+
+
+def sesion_componente() -> gr.State:
+    """``gr.State`` con el estado de la sesión (calibración, piel). Lo crea ``crear_app``."""
+    global _SESION
+    if _SESION is None:
+        _SESION = gr.State(None)
+    return _SESION
+
+
+def nueva_sesion_componente() -> gr.State:
+    global _SESION
+    _SESION = gr.State(None)
+    return _SESION
 
 
 def teoria(md: str) -> None:
@@ -52,6 +72,7 @@ def conectar(entrada: Entrada, fn: Callable, params: list, salidas: list, cada: 
     cuando se mueve un parámetro.
     """
     n = len(salidas)
+    S = sesion_componente()
 
     def _ejecutar(fr: Frame | None, *p):
         if fr is None:
@@ -59,34 +80,39 @@ def conectar(entrada: Entrada, fn: Callable, params: list, salidas: list, cada: 
         r = fn(fr, *p)
         return r if isinstance(r, tuple) else (r,)
 
+    @con_sesion
     def desde_subida(img, *p):
         fr = frame_desde_rgb(img)
         return (fr, *_ejecutar(fr, *p))
 
+    @con_sesion
     def desde_ejemplo(nombre, *p):
         fr = frame_ejemplo(nombre)
         return (fr, rgb(fr.img), *_ejecutar(fr, *p))
 
+    @con_sesion
     def desde_estado(fr, *p):
         return _ejecutar(fr, *p)
 
-    entrada.subida.input(desde_subida, [entrada.subida, *params], [entrada.estado, *salidas])
-    entrada.boton.click(desde_ejemplo, [entrada.ejemplo, *params], [entrada.estado, entrada.subida, *salidas])
+    entrada.subida.input(desde_subida, [S, entrada.subida, *params], [S, entrada.estado, *salidas])
+    entrada.boton.click(desde_ejemplo, [S, entrada.ejemplo, *params], [S, entrada.estado, entrada.subida, *salidas])
     if en_vivo:
-        entrada.vivo.stream(desde_subida, [entrada.vivo, *params], [entrada.estado, *salidas], stream_every=cada,
-                            concurrency_limit=1, trigger_mode="always_last", show_progress="hidden")
+        entrada.vivo.stream(desde_subida, [S, entrada.vivo, *params], [S, entrada.estado, *salidas], stream_every=cada,
+                            concurrency_limit=CONCURRENCIA_VIVO, trigger_mode="always_last", show_progress="hidden")
     for p in params:
         evento = p.release if isinstance(p, gr.Slider) else p.change
-        evento(desde_estado, [entrada.estado, *params], salidas, show_progress="hidden")
+        evento(desde_estado, [S, entrada.estado, *params], [S, *salidas], show_progress="hidden")
 
 
 def cargar_al_inicio(demo: gr.Blocks, entrada: Entrada, fn: Callable, params: list, salidas: list) -> None:
     """Procesa la escena de ejemplo al abrir la app, para que ninguna pestaña empiece vacía."""
+    S = sesion_componente()
 
+    @con_sesion
     def inicial(nombre, *p):
         fr = frame_ejemplo(nombre)
         r = fn(fr, *p)
         r = r if isinstance(r, tuple) else (r,)
         return (fr, rgb(fr.img), *r)
 
-    demo.load(inicial, [entrada.ejemplo, *params], [entrada.estado, entrada.subida, *salidas])
+    demo.load(inicial, [S, entrada.ejemplo, *params], [S, entrada.estado, entrada.subida, *salidas])

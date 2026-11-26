@@ -8,9 +8,11 @@ Uso::
 
 from __future__ import annotations
 
-import argparse
+import voleyar.entorno  # noqa: F401  (primero: en ZeroGPU `spaces` debe cargarse antes que torch)
 
-from voleyar.ui.app import lanzar
+import argparse  # noqa: E402
+
+from voleyar.ui.app import lanzar  # noqa: E402
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Laboratorio de Voley AR")

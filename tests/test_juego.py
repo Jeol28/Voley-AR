@@ -157,3 +157,27 @@ def test_juego_sin_ventana_con_fuente_sintetica():
     assert j.eventos_totales.count("golpe") >= 2
     j.depurar = True
     assert j.paso().shape[1] > 960  # panel de depuración a la derecha
+
+
+def test_juego_en_el_navegador_con_frames_externos():
+    import time
+
+    from voleyar.juego.navegador import crear_juego_navegador, paso_navegador
+
+    modelo = s.camara_ejemplo(640, 360)
+    j = crear_juego_navegador(modelo)
+    fuente = s.FuenteSintetica(modelo)
+    assert paso_navegador(j, fuente.leer()[1]) is not None and j.fase == "calibrar_piel"
+    j.tecla(ord(" "))
+    j.t_cuenta = time.perf_counter()  # sin esperar la cuenta regresiva
+    fuente.mano.pos = (-6.0, 0.0)
+    paso_navegador(j, fuente.leer()[1])
+    assert j.fase == "jugando" and j.piel is not None
+    golpes = 0
+    for _ in range(150):
+        b = j.partida.balon.pos
+        if b[0] < 0:
+            fuente.mano.pos = (float(b[0]) - 1.0, float(b[1]))
+        out = paso_navegador(j, fuente.leer()[1])
+        assert out.shape[:2] == (360, 640)
+    assert "golpe" in j.eventos_totales

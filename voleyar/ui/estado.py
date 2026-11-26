@@ -6,6 +6,7 @@ NumPy y devuelven arreglos o datos, así que se pueden probar sin levantar la UI
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 
 import cv2
@@ -18,6 +19,7 @@ from voleyar.core import segmentacion as seg
 from voleyar.core import umbralizacion as umb
 from voleyar.utils import sinteticos as sin
 from voleyar.utils import visualizacion as vis
+from voleyar.entorno import EN_SPACE
 from voleyar.utils.io import cargar_modelo_camara
 
 
@@ -46,8 +48,60 @@ class EstadoApp:
         return fr.modelo if fr.modelo is not None else self.modelo_camara
 
 
-ESTADO = EstadoApp()
-ESTADO.recargar_camara()
+def nuevo_estado() -> EstadoApp:
+    """Estado de una sesión nueva. En local carga ``config/camara.json``; en un Space
+    empieza sin calibración (cada visitante tiene su propia cámara)."""
+    e = EstadoApp()
+    if not EN_SPACE:
+        e.recargar_camara()
+    return e
+
+
+_global = nuevo_estado()  # respaldo cuando no hay sesión (pruebas, scripts)
+_sesion_actual: ContextVar[EstadoApp | None] = ContextVar("sesion_voleyar", default=None)
+
+
+class _EstadoDeLaSesion:
+    """Proxy: ``ESTADO.x`` lee y escribe en el estado de la sesión de Gradio en curso.
+
+    Cada manejador de evento fija la sesión con ``usar_sesion`` antes de llamar a
+    las funciones de las pestañas, así la calibración y la piel de un visitante
+    no se mezclan con las de otro.
+    """
+
+    def __getattr__(self, nombre):
+        return getattr(_sesion_actual.get() or _global, nombre)
+
+    def __setattr__(self, nombre, valor):
+        setattr(_sesion_actual.get() or _global, nombre, valor)
+
+
+ESTADO = _EstadoDeLaSesion()
+
+
+def usar_sesion(sesion: EstadoApp | None) -> tuple[EstadoApp, object]:
+    """Activa la sesión (creándola si hace falta) y devuelve ``(sesion, token)``."""
+    sesion = sesion if isinstance(sesion, EstadoApp) else nuevo_estado()
+    return sesion, _sesion_actual.set(sesion)
+
+
+def soltar_sesion(token) -> None:
+    _sesion_actual.reset(token)
+
+
+def con_sesion(fn):
+    """Envuelve ``fn(*args)`` como manejador de Gradio ``(sesion, *args) -> (sesion, *salidas)``."""
+    def envoltura(sesion, *args):
+        sesion, token = usar_sesion(sesion)
+        try:
+            r = fn(*args)
+        finally:
+            soltar_sesion(token)
+        return (sesion, *(r if isinstance(r, tuple) else (r,)))
+
+    # Solo el nombre: con functools.wraps Gradio leería la firma original (sin ``sesion``)
+    envoltura.__name__ = getattr(fn, "__name__", "manejador")
+    return envoltura
 
 
 # --------------------------------------------------------------------------- #

@@ -8,6 +8,7 @@ import numpy as np
 
 from voleyar.core import calibracion as cal
 from voleyar.core import transformers_models as tm
+from voleyar.entorno import EN_SPACE
 from voleyar.ui.comunes import LATEX, bloque_entrada, cargar_al_inicio, conectar, teoria
 from voleyar.ui.estado import Frame, ejecutar_pipeline, rgb, tabla_md
 from voleyar.utils import visualizacion as vis
@@ -41,7 +42,7 @@ def profundidad(fr: Frame, umbral: float, ejecutar: bool):
     if not ejecutar:
         return None, "Activa **Ejecutar Depth Anything** (la primera vez descarga ≈ 100 MB)."
     res = ejecutar_pipeline(fr)
-    r = tm.obtener_profundidad().estimar(res.imagen)
+    r = tm.estimar_profundidad(res.imagen)
     mapa = cv2.applyColorMap(vis.normalizar_u8(r.mapa), cv2.COLORMAP_INFERNO)
     md = f"Latencia: **{r.ms:.0f} ms** en `{r.dispositivo}`."
     if res.mascara_mano is not None and res.zona is not None:
@@ -69,7 +70,7 @@ def comparar(fr: Frame, texto: str, umbral_owl: float, ejecutar: bool):
     if not ejecutar:
         return rgb(img), "Activa **Ejecutar OWLv2** (la primera vez descarga ≈ 600 MB)."
     zona = res.zona.mascara if res.zona is not None else None
-    owl = tm.obtener_owl().detectar(res.imagen, tuple(t.strip() for t in texto.split(",") if t.strip()) or ("a hand",),
+    owl = tm.detectar_manos(res.imagen, tuple(t.strip() for t in texto.split(",") if t.strip()) or ("a hand",),
                                     umbral_owl, zona)
     for d in owl.detecciones:
         if d is not owl.mejor:
@@ -111,8 +112,9 @@ def construir(demo: gr.Blocks) -> None:
             with gr.Row():
                 md_prof = gr.Markdown(latex_delimiters=LATEX)
                 md_comp = gr.Markdown(latex_delimiters=LATEX)
-    conectar(entrada, profundidad, [umbral, ej_prof], [mapa, md_prof], cada=0.5)
-    conectar(entrada, comparar, [texto, umbral_owl, ej_owl], [comp, md_comp], cada=1.0)
+    # En un Space cada llamada pide la GPU (ZeroGPU) y gasta cuota del visitante: en vivo, un frame cada 2-3 s
+    conectar(entrada, profundidad, [umbral, ej_prof], [mapa, md_prof], cada=2.0 if EN_SPACE else 0.5)
+    conectar(entrada, comparar, [texto, umbral_owl, ej_owl], [comp, md_comp], cada=3.0 if EN_SPACE else 1.0)
     cargar_al_inicio(demo, entrada, profundidad, [umbral, ej_prof], [mapa, md_prof])
     cargar_al_inicio(demo, entrada, comparar, [texto, umbral_owl, ej_owl], [comp, md_comp])
     teoria(TEORIA)

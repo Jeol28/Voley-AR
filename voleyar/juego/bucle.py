@@ -52,7 +52,7 @@ class OpcionesJuego:
 
 
 class Juego:
-    def __init__(self, op: OpcionesJuego, fuente=None):
+    def __init__(self, op: OpcionesJuego, fuente=None, modelo_camara=None):
         self.op = op
         if fuente is None:
             if op.sintetico:
@@ -66,7 +66,10 @@ class Juego:
         self.fuente = fuente
         self.sintetico = hasattr(fuente, "mano")
         # Modelo de cámara: config/camara.json, o el verdadero en modo sintético
-        self.modelo_camara = fuente.modelo if self.sintetico else cargar_modelo_camara()
+        if modelo_camara is not None:  # p. ej. la calibración de la sesión en la UI
+            self.modelo_camara = modelo_camara
+        else:
+            self.modelo_camara = fuente.modelo if self.sintetico else cargar_modelo_camara()
         if self.modelo_camara is None:
             print("⚠  No hay config/camara.json: se juega SIN calibración. "
                   "Calibra con `python scripts/calibrar_camara.py` o desde la UI.")
@@ -106,13 +109,13 @@ class Juego:
     def _tarea_profundidad(self, img, mascara_mano, mascara_cancha):
         from voleyar.core import transformers_models as tm
 
-        r = tm.obtener_profundidad().estimar(img)
+        r = tm.estimar_profundidad(img)
         return r, tm.mano_cerca_de_mesa(r.mapa, mascara_mano, mascara_cancha, self.op.umbral_profundidad)
 
     def _tarea_owl(self, img, zona):
         from voleyar.core import transformers_models as tm
 
-        return tm.obtener_owl().detectar(img, ("a hand",), 0.15, zona)
+        return tm.detectar_manos(img, ("a hand",), 0.15, zona)
 
     # ------------------------------------------------------------ un frame
     def paso(self) -> np.ndarray | None:

@@ -1,0 +1,10 @@
+# Dependencias del Space de Hugging Face (Gradio + ZeroGPU).
+# Gradio lo instala el propio Space según `sdk_version` en el README.
+spaces
+opencv-contrib-python-headless>=4.8   # sin interfaz gráfica: en el servidor no hay ventanas
+numpy>=1.24
+scikit-image>=0.21
+matplotlib>=3.7
+pillow>=10.0
+torch==2.9.1                          # versión soportada por ZeroGPU (2.8.0 a 2.13.0)
+transformers>=4.51

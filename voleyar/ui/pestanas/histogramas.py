@@ -8,8 +8,8 @@ import numpy as np
 
 from voleyar.core import histogramas as his
 from voleyar.core import pipeline as pl
-from voleyar.ui.comunes import LATEX, bloque_entrada, cargar_al_inicio, conectar, teoria
-from voleyar.ui.estado import ESTADO, Frame, rgb
+from voleyar.ui.comunes import LATEX, bloque_entrada, cargar_al_inicio, conectar, sesion_componente, teoria
+from voleyar.ui.estado import ESTADO, Frame, con_sesion, rgb
 from voleyar.utils import visualizacion as vis
 
 TEORIA = r"""
@@ -107,5 +107,6 @@ def construir(demo: gr.Blocks) -> None:
     salidas = [vista, hs, cc, retro, ecu, cla, graf, contraste]
     conectar(entrada, procesar, params, salidas)
     cargar_al_inicio(demo, entrada, procesar, params, salidas)
-    boton.click(usar_piel, [entrada.estado, cx, cy, lado], aviso)
+    S = sesion_componente()
+    boton.click(con_sesion(usar_piel), [S, entrada.estado, cx, cy, lado], [S, aviso])
     teoria(TEORIA)

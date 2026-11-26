@@ -6,9 +6,13 @@ import subprocess
 import sys
 
 import gradio as gr
+import numpy as np
 
 from voleyar.core import config as cfg
-from voleyar.ui.estado import ESTADO
+from voleyar.entorno import EN_SPACE
+from voleyar.ui.comunes import CONCURRENCIA_VIVO, sesion_componente
+from voleyar.ui.estado import ESTADO, con_sesion
+from voleyar.utils import visualizacion as vis
 
 INSTRUCCIONES = """
 ### Antes de jugar
@@ -56,8 +60,84 @@ def lanzar(sintetico: bool, camara: int, dificultad: str, profundidad: bool, sin
     return f"Juego lanzado en su ventana (PID {_proceso.pid}): `{' '.join(args[1:])}`{aviso}"
 
 
+# --------------------------------------------------------------------------- #
+# Juego en el navegador (funciona igual en local y en un Space)
+# --------------------------------------------------------------------------- #
+
+CAMARA_JUEGO = gr.WebcamOptions(mirror=False, constraints={"video": {"width": {"ideal": 640},
+                                                                   "height": {"ideal": 360}}})
+
+
+def _sincronizar(juego):
+    """Crea el juego de la sesión o le pasa la calibración que se hizo en la pestaña Calibración."""
+    from voleyar.juego.navegador import crear_juego_navegador
+
+    if juego is None:
+        return crear_juego_navegador(ESTADO.modelo_camara)
+    if juego.modelo_camara is None and ESTADO.modelo_camara is not None:
+        juego.modelo_camara = ESTADO.modelo_camara
+        juego.config.usar_calibracion = True
+    return juego
+
+
+def jugar_frame(img_rgb, juego):
+    from voleyar.juego.navegador import paso_navegador
+
+    if img_rgb is None:
+        return gr.skip(), juego
+    juego = _sincronizar(juego)
+    out = paso_navegador(juego, vis.rgb_a_bgr(np.asarray(img_rgb)))
+    return (gr.skip() if out is None else vis.bgr_a_rgb(out)), juego
+
+
+def tecla(letra: str):
+    def accion(juego):
+        juego = _sincronizar(juego)
+        juego.tecla(ord(letra))
+        return juego
+
+    accion.__name__ = f"tecla_{letra.strip() or 'espacio'}"
+    return accion
+
+
+INSTRUCCIONES_NAVEGADOR = """
+1. Imprime la cancha y calibra tu cámara en la pestaña **Calibración** (en esta sesión).
+2. Activa la cámara aquí abajo y pulsa el botón de grabar. Pon la palma sobre el **recuadro naranja** y pulsa
+   **Capturar piel**.
+3. Golpea el balón con la mano cerca de la mesa. El juego corre en el servidor: según tu conexión irá a 5-15 FPS.
+   La versión de escritorio (`python jugar.py`) es más fluida y usa Depth Anything para validar la altura de la mano.
+"""
+
+
 def construir(demo: gr.Blocks) -> None:
     gr.Markdown("## Jugar")
+    with gr.Tabs():
+        with gr.Tab("En el navegador"):
+            S = sesion_componente()
+            juego = gr.State(None)
+            with gr.Row():
+                with gr.Column(scale=4):
+                    gr.Markdown(INSTRUCCIONES_NAVEGADOR)
+                    camara = gr.Image(sources=["webcam"], streaming=True, type="numpy", label="Tu cámara",
+                                      webcam_options=CAMARA_JUEGO, height=240)
+                    with gr.Row():
+                        b_piel = gr.Button("Capturar piel", variant="primary")
+                        b_rep = gr.Button("Recalibrar piel")
+                    with gr.Row():
+                        b_dep = gr.Button("Depuración")
+                        b_cal = gr.Button("Con / sin calibración")
+                        b_rei = gr.Button("Reiniciar")
+                pantalla = gr.Image(label="Voley AR", height=560, scale=7)
+            camara.stream(con_sesion(jugar_frame), [S, camara, juego], [S, pantalla, juego], stream_every=0.1,
+                          concurrency_limit=CONCURRENCIA_VIVO, trigger_mode="always_last", show_progress="hidden")
+            for b, letra in ((b_piel, " "), (b_rep, "p"), (b_dep, "d"), (b_cal, "c"), (b_rei, "r")):
+                b.click(con_sesion(tecla(letra)), [S, juego], [S, juego])
+        if not EN_SPACE:
+            with gr.Tab("En una ventana (escritorio)"):
+                construir_ventana()
+
+
+def construir_ventana() -> None:
     with gr.Row():
         with gr.Column(scale=6):
             gr.Markdown(INSTRUCCIONES)

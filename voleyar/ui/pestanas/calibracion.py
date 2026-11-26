@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 import cv2
 import gradio as gr
 import numpy as np
@@ -9,8 +12,10 @@ import numpy as np
 from voleyar.core import calibracion as cal
 from voleyar.core import config as cfg
 from voleyar.juego import render_ar as ra
-from voleyar.ui.comunes import LATEX, bloque_entrada, cargar_al_inicio, conectar, teoria
-from voleyar.ui.estado import ESTADO, Frame, rgb, tabla_md
+from voleyar.entorno import EN_SPACE
+from voleyar.ui.comunes import (CONCURRENCIA_VIVO, LATEX, bloque_entrada, cargar_al_inicio, conectar,
+                                sesion_componente, teoria)
+from voleyar.ui.estado import ESTADO, Frame, con_sesion, rgb, tabla_md
 from voleyar.utils import sinteticos as sin
 from voleyar.utils import visualizacion as vis
 from voleyar.utils.io import guardar_modelo_camara
@@ -144,11 +149,18 @@ def calibrar(gestor, cuadro_cm: float):
 
 
 def guardar(res):
+    """Usa la calibración en esta sesión. En local además escribe ``config/camara.json``;
+    en un Space la ofrece para descargar (el disco del Space es compartido y temporal)."""
     if res is None:
-        return "Primero calibra."
+        return "Primero calibra.", None
+    ESTADO.modelo_camara = res.modelo
+    if EN_SPACE:
+        ruta = Path(tempfile.mkdtemp()) / "camara.json"
+        guardar_modelo_camara(res.modelo, ruta)
+        return ("Calibración activa en tu sesión: las demás pestañas y el juego en el navegador ya la usan. "
+                "Descarga `camara.json` y cópialo en `config/` para usarlo en tu equipo."), str(ruta)
     ruta = guardar_modelo_camara(res.modelo)
-    ESTADO.recargar_camara()
-    return f"Guardado en `{ruta.relative_to(cfg.RAIZ_PROYECTO)}`. El juego y las demás pestañas ya lo usan."
+    return f"Guardado en `{ruta.relative_to(cfg.RAIZ_PROYECTO)}`. El juego y las demás pestañas ya lo usan.", str(ruta)
 
 
 # --------------------------------------------------------------------------- #
@@ -168,7 +180,7 @@ def comparar_cancha(fr: Frame, modo: str, altura_balon: float):
     filas = []
     for clave, nombre in (("calibrado", "Con calibración"), ("sin_calibrar", "Sin calibración")):
         if clave not in modos:
-            filas.append([nombre, "—", "—", "no hay config/camara.json"])
+            filas.append([nombre, "—", "—", "aún no calibras la cámara"])
             continue
         pose, m = modos[clave]
         if pose is None:
@@ -194,7 +206,7 @@ def comparar_cancha(fr: Frame, modo: str, altura_balon: float):
         vis.poner_texto(out, "No se detectan los marcadores ArUco", (20, 20), 26, vis.BGR_NARANJA,
                         fondo=vis.BGR_GRAFITO)
     origen = "verdadero de la escena sintética" if fr.modelo is not None else (
-        "config/camara.json" if ESTADO.modelo_camara is not None else "ninguno")
+        "el de tu calibración" if ESTADO.modelo_camara is not None else "ninguno (calibra primero)")
     md = (f"Modelo calibrado: **{origen}**. En modo *Ambos*: naranja = con calibración, blanco = sin calibración "
           "(contorno, borde superior de la red y balón).\n\n"
           + tabla_md(filas, ["Modo", "Error reproyección ArUco (px)", "Marcadores", "Distancia a la cancha"]))
@@ -225,20 +237,22 @@ def construir(demo: gr.Blocks) -> None:
                     b_sim = gr.Button("Simular 15 vistas sintéticas (sin cámara)")
                     with gr.Row():
                         b_cal = gr.Button("Calibrar", variant="primary")
-                        b_gua = gr.Button("Guardar en config/camara.json")
+                        b_gua = gr.Button("Usar en mi sesión y descargar" if EN_SPACE else
+                                          "Guardar en config/camara.json")
                     guardado = gr.Markdown()
+                    archivo = gr.File(label="camara.json", height=80)
             with gr.Row():
                 resumen = gr.Markdown(latex_delimiters=LATEX)
                 grafica = gr.Image(label="Error por vista", height=280)
             correccion = gr.Image(label="Efecto de la distorsión y su corrección", height=300)
             json_out = gr.JSON(label="Contenido de camara.json", visible=True)
             vivo.stream(procesar_vista_tablero, [vivo, gestor, auto], [salida, gestor, estado, ultimo],
-                        stream_every=0.25, concurrency_limit=1, trigger_mode="always_last", show_progress="hidden")
+                        stream_every=0.25, concurrency_limit=CONCURRENCIA_VIVO, trigger_mode="always_last", show_progress="hidden")
             b_cap.click(capturar, [gestor, ultimo], [gestor, estado])
             b_rei.click(lambda: (None, estado_md(None)), None, [gestor, estado])
             b_sim.click(simular_capturas, None, [salida, gestor, estado])
             b_cal.click(calibrar, [gestor, cuadro], [resultado, resumen, grafica, correccion, json_out])
-            b_gua.click(guardar, resultado, guardado)
+            b_gua.click(con_sesion(guardar), [sesion_componente(), resultado], [sesion_componente(), guardado, archivo])
             gr.Markdown("También puedes calibrar con `python scripts/calibrar_camara.py`: usa la misma captura de "
                         "OpenCV que el juego, así la resolución coincide.")
         with gr.Tab("Cancha: con y sin calibración"):
