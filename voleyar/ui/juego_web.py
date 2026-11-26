@@ -105,22 +105,43 @@ distancias salgan en centímetros reales. Se hace una sola vez.
 # --------------------------------------------------------------------------- #
 
 
-def configuracion_rtc():
-    """En un Space el video necesita un servidor TURN (lo da Hugging Face con el token ``HF_TOKEN``).
-    En local la conexión es directa y no hace falta."""
-    if EN_SPACE and os.environ.get("HF_TOKEN"):
-        from fastrtc import get_cloudflare_turn_credentials_async
+STUN = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]}]}
 
-        return get_cloudflare_turn_credentials_async
-    return None
+
+def _turn_hf(ttl: int) -> dict | None:
+    """Credenciales TURN de Hugging Face (con el secreto ``HF_TOKEN``); ``None`` si no se pueden obtener."""
+    if not (EN_SPACE and os.environ.get("HF_TOKEN")):
+        return None
+    try:
+        from fastrtc import get_cloudflare_turn_credentials
+
+        cred = get_cloudflare_turn_credentials(ttl=ttl)
+        return cred if isinstance(cred, dict) and cred.get("iceServers") else None
+    except Exception as e:  # p. ej. certificado vencido en el servidor de credenciales
+        print(f"[webrtc] sin TURN de Hugging Face ({type(e).__name__}: {e}); se usa STUN", flush=True)
+        return None
+
+
+def configuracion_rtc():
+    """Configuración ICE del navegador.
+
+    En un Space lo ideal es un relé TURN (Hugging Face lo da con ``HF_TOKEN``); si no está
+    disponible se usa STUN, que funciona cuando la red permite una conexión directa.
+    En local la conexión es directa y no hace falta nada.
+    """
+    if not EN_SPACE:
+        return None
+
+    async def credenciales():
+        return _turn_hf(ttl=600) or STUN
+
+    return credenciales
 
 
 def configuracion_rtc_servidor():
-    if EN_SPACE and os.environ.get("HF_TOKEN"):
-        from fastrtc import get_cloudflare_turn_credentials
-
-        return get_cloudflare_turn_credentials(ttl=360_000)
-    return None
+    if not EN_SPACE:
+        return None
+    return _turn_hf(ttl=360_000) or STUN
 
 
 # --------------------------------------------------------------------------- #
