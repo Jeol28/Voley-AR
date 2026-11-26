@@ -231,3 +231,16 @@ def test_lo_que_esta_lejos_segun_depth_anything_no_golpea():
     paso_navegador(j2, _cuarto())
     j2.config.cercania_min = 0.0  # sin el filtro de profundidad, el mismo objeto sí golpea
     assert "golpe" in _golpear_con(j2, int(1.6 * r), mapa_lejos)
+
+
+def test_la_dilatacion_agranda_la_zona_de_golpe():
+    # un objeto que pasa justo al lado del balón, sin tocarlo
+    frames = _aprendido() + [(_con_bloque(_cuarto(), 100 + 4 * k, 120, lado=50), ()) for k in range(4)]
+    # el objeto termina en x = 162; el disco del balón (radio 12 · 1.35 ≈ 16) empieza ~10 px más allá
+    balon, radio = np.array([162.0 + 10 + 16.2, 145.0]), 12.0
+    normal, _ = _analizar(frames)
+    assert not movi.toque_en_balon(normal, balon, radio).toca
+    gigante, _ = _analizar(frames, mov_alcance=14)
+    t = movi.toque_en_balon(gigante, balon, radio)
+    assert t.toca and t.objeto is not None
+    assert np.count_nonzero(gigante.zona_golpe) > np.count_nonzero(gigante.etiquetas)

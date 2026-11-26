@@ -286,9 +286,9 @@ def test_vistas_por_tema_en_la_ventana():
         assert out.shape[:2] == (540 + int(540 * 0.3), 960)
     assert vistas == list(VISTAS[1:-1])
     j.vista = "morfologia"
-    apertura = j.config.mov_apertura
+    alcance = j.config.mov_alcance
     j.tecla(ord("]"))
-    assert j.config.mov_apertura != apertura  # el ajuste de morfología cambia la limpieza del movimiento
+    assert j.config.mov_alcance > alcance  # el ajuste de morfología agranda la zona de golpe
     j.tecla(ord("b"))
     assert j.vista == "umbralizacion"
 

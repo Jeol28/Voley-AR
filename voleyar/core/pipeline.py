@@ -72,6 +72,7 @@ class ConfigPipeline:
     mov_t_min: int = 18  # mínimo del umbral de Otsu sobre |frame - fondo|
     mov_apertura: int = 3  # px (imagen de 320): quita el ruido suelto
     mov_cierre: int = 5  # px (imagen de 320): une el objeto
+    mov_alcance: int = 0  # px (imagen de 320): dilatación de cada objeto = zona de golpe más grande (0 = su tamaño)
     mov_area_min: float = 0.0015  # área mínima de un objeto en movimiento (fracción de la imagen)
     ignorar_caras_golpe: bool = True  # la cara (Viola-Jones) no golpea el balón
     remate_vz: float = 60.0  # cm/s hacia la cámara (calibración: Z = f·W/w) desde los que es remate

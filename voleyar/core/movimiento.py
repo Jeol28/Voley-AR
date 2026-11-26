@@ -14,7 +14,9 @@ frame pasa por los temas del curso, y cada uno cambia lo que ocurre en la partid
 4. **Umbralización.** La diferencia entre el frame y el fondo se binariza con Otsu
    (con un mínimo): el umbral se adapta a cada cuarto y a cada luz. Un píxel se mueve
    si MOG2 no lo explica **y** su diferencia supera ese umbral.
-5. **Morfología.** Apertura (quita puntos de ruido) y cierre (une el objeto).
+5. **Morfología.** Apertura (quita puntos de ruido) y cierre (une el objeto). Al final,
+   una dilatación agranda la **zona de golpe** de cada objeto (ajustable: ayuda a
+   quien empieza a alcanzar el balón).
 6. **Segmentación en objetos.** Componentes conexas; se descartan las que son la cara
    (Viola-Jones), que es lo que más se mueve sin querer.
 7. **Caracterización.** Área relativa al balón y solidez de cada objeto (con ellas se
@@ -57,6 +59,7 @@ class ResultadoMovimiento:
     cruda: np.ndarray | None = None  # diferencia > T, antes de la morfología (reducida)
     limpia: np.ndarray | None = None  # después de apertura + cierre (reducida)
     etiquetas: np.ndarray | None = None  # componentes conexas de ``limpia`` (reducida)
+    zona_golpe: np.ndarray | None = None  # ``etiquetas`` dilatadas: hasta dónde alcanza cada objeto (reducida)
     T: int = 0  # umbral usado
     T_otsu: int = 0  # el que eligió Otsu
     curva_otsu: np.ndarray | None = None
@@ -182,6 +185,12 @@ class AnalizadorMovimiento:
                 validas[k] = True
         etiquetas = np.where(validas[etiquetas], etiquetas, 0).astype(np.int32)
         res.etiquetas = etiquetas
+        # 6b. Morfología otra vez: la dilatación agranda la zona con la que cada objeto golpea el balón
+        if config.mov_alcance > 0 and validas.any():
+            ee = mor.elemento_estructurante("elipse", 2 * int(config.mov_alcance) + 1)
+            res.zona_golpe = cv2.dilate(etiquetas.astype(np.float32), ee).astype(np.int32)
+        else:
+            res.zona_golpe = etiquetas
         res.mascara = cv2.resize(np.where(etiquetas > 0, 255, 0).astype(np.uint8), (w, h),
                                  interpolation=cv2.INTER_NEAREST)
         return res
@@ -204,7 +213,7 @@ def toque_en_balon(res: ResultadoMovimiento | None, centro: np.ndarray, radio: f
         return Toque(False, motivo="aprendiendo el fondo" if res is not None and res.calentando
                      else "sin sustracción de fondo")
     e = res.escala
-    et = res.etiquetas
+    et = res.zona_golpe if res.zona_golpe is not None else res.etiquetas
     hp, wp = et.shape
     R = max(2.0, radio * margen * e)
     cx, cy = centro[0] * e, centro[1] * e

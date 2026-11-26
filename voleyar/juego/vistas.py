@@ -42,7 +42,7 @@ APODOS = {  # cortos: tienen que caber en el menú
     "filtros": "sin ruido",
     "histogramas": "la luz",
     "umbralizacion": "¿qué se movió?",
-    "morfologia": "limpieza",
+    "morfologia": "zona de golpe",
     "segmentacion": "cada cosa",
     "caracterizacion": "¿qué golpe?",
     "transformers": "cerca o lejos",
@@ -52,7 +52,7 @@ QUE_HACE = {
     "filtros": "La cámara tiene puntitos que tiemblan. El juego los borra para que no golpeen el balón solos.",
     "histogramas": "Si alguien prende o apaga una luz, el juego se da cuenta y no lo confunde con un golpe.",
     "umbralizacion": "El juego decide qué cambió lo suficiente para contar como movimiento. Lo blanco se está moviendo.",
-    "morfologia": "El juego borra las manchitas sueltas y junta los pedazos de lo que se mueve.",
+    "morfologia": "El juego agranda lo que se mueve: con una zona de golpe más grande es más fácil alcanzar el balón.",
     "segmentacion": "Cada cosa que se mueve sale de un color. Tu cara no cuenta: así no golpeas con la cabeza sin querer.",
     "caracterizacion": "La forma decide el golpe: puño = golpe fuerte, mano abierta = toque suave, cuaderno = bloqueo.",
     "transformers": "Una inteligencia artificial ve qué está cerca. Lo que pasa lejos, por detrás, no golpea el balón.",
@@ -96,8 +96,8 @@ PARAMETROS: dict[str, Parametro] = {
     "umbralizacion": Parametro("Sensible al movimiento", (8, 12, 18, 25, 35, 50), *_cfg("mov_t_min"),
                                _nombres((8, "al máximo"), (12, "mucho"), (18, "normal"), (25, "poco"),
                                         (35, "muy poco"), (50, "casi nada"))),
-    "morfologia": Parametro("Borrar manchitas", (1, 3, 5, 7), *_cfg("mov_apertura"),
-                            _nombres((1, "no"), (3, "normal"), (5, "más"), (7, "muchísimo"))),
+    "morfologia": Parametro("Zona de golpe", (0, 4, 8, 14), *_cfg("mov_alcance"),
+                            _nombres((0, "normal"), (4, "grande"), (8, "muy grande"), (14, "gigante"))),
     "segmentacion": Parametro("La cabeza golpea", (False, True), lambda j: not j.config.ignorar_caras_golpe,
                               lambda j, v: setattr(j.config, "ignorar_caras_golpe", not v), _SI_NO),
     "caracterizacion": Parametro("Contar dedos", (1.4, 1.5, 1.6, 1.7, 1.8, 2.0), *_cfg("k_dedo"),
@@ -327,15 +327,16 @@ def _morfologia(juego, res, img):
     if m is None or m.cruda is None:
         return out, ["Mirando el cuarto… quédate quieto un segundo"]
     antes, despues = _grande(m.cruda, img), _grande(m.limpia, img)
-    out[despues > 0] = vis.BGR_NEUTRO
+    objetos = _grande((m.etiquetas > 0).astype(np.uint8) * 255, img)
+    if m.zona_golpe is not None:  # la zona de golpe (dilatación), en naranja alrededor de cada objeto
+        zona = _grande((m.zona_golpe > 0).astype(np.uint8) * 255, img)
+        out = _mezclar(out, np.full_like(out, vis.BGR_NARANJA), 0.55, zona)
+    out[objetos > 0] = vis.BGR_NEUTRO
     quitados = cv2.bitwise_and(antes, cv2.bitwise_not(despues))
-    rellenos = cv2.bitwise_and(despues, cv2.bitwise_not(antes))
     out[cv2.dilate(quitados, np.ones((3, 3), np.uint8)) > 0] = vis.BGR_ROJO
-    out[rellenos > 0] = vis.BGR_VERDE
-    n0 = cv2.connectedComponents(m.cruda)[0] - 1
-    n1 = cv2.connectedComponents(m.limpia)[0] - 1
-    return out, ["En rojo, las manchitas que se borran. En verde, los huecos que se rellenan",
-                 f"Pedazos que se movían: {n0} antes de limpiar, {n1} después"]
+    tam = PARAMETROS["morfologia"].formato(juego.config.mov_alcance)
+    return out, [f"Blanco: lo que se mueve · naranja: tu zona de golpe ({tam}) · rojo: manchitas borradas",
+                 "Si al balón lo toca lo naranja, cuenta como golpe"]
 
 
 def _segmentacion(juego, res, img):

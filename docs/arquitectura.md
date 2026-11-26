@@ -158,7 +158,7 @@ En el navegador (y en el Space) la cámara llega como **video por WebRTC** (fast
 frame → suavizado (filtros) → histograma de gris vs. referencia (Bhattacharyya > 0.30: cambio de luz → se reinicia MOG2)
       → MOG2 (α = 1/900 tras 15 frames de calentamiento: lo quieto ≈ 3 s después es entorno)
       → |frame − fondo|, umbral T = max(Otsu, 18), y además primer plano de MOG2
-      → apertura 3 px + cierre 5 px → componentes conexas (área ≥ 0.15 %)
+      → apertura 3 px + cierre 5 px → componentes conexas (área ≥ 0.15 %) → dilatación = zona de golpe (0-14 px)
       → se descartan las que caen > 50 % en un recuadro de cara agrandado (Viola-Jones)
 ```
 

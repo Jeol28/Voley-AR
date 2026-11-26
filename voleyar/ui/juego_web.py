@@ -89,7 +89,7 @@ Mientras juegas, **¿Qué quieres ver?** te muestra cómo te ve el juego. Cada t
 - **Filtros:** borra los puntitos que tiemblan en la cámara.
 - **Histogramas:** se da cuenta cuando alguien prende o apaga una luz.
 - **Umbralización:** decide qué se movió. Lo blanco se está moviendo.
-- **Morfología:** borra manchitas y junta los pedazos.
+- **Morfología:** agranda tu zona de golpe. ¡Más grande es más fácil!
 - **Segmentación:** pinta de un color cada cosa que se mueve. Tu cara no cuenta.
 - **Caracterización:** mira la forma de lo que golpea para saber qué golpe fue.
 - **Transformers:** una inteligencia artificial ve qué está cerca. Lo de atrás no golpea.
