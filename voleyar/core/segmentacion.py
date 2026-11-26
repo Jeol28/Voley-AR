@@ -318,3 +318,20 @@ def colorear_etiquetas(etiquetas: np.ndarray) -> np.ndarray:
     img = paleta[np.clip(etiquetas, 0, None)]
     img[etiquetas == -1] = (245, 245, 247)
     return img
+
+
+def hay_region_extra(mascara_mano: np.ndarray, info: InfoCorte, frac_grosor: float = 0.5) -> bool:
+    """¿Quedó pegada a la mano una región **gruesa** que no es un dedo?
+
+    Fuera del disco de la palma (radio 1.5 r) solo deberían quedar dedos, cuyo
+    grosor (máximo de la transformada de distancia) es ≈ 0.2 r. Una región con
+    grosor mayor que ``frac_grosor · r`` es otro objeto de color parecido (otra
+    mano, un objeto de madera…) y conviene separarla con watershed.
+    """
+    if info.radio_palma <= 0 or not mascara_mano.any():
+        return False
+    afuera = mascara_mano.copy()
+    c = (int(round(info.centro_palma[0])), int(round(info.centro_palma[1])))
+    cv2.circle(afuera, c, int(1.5 * info.radio_palma), 0, -1)
+    dt = transformada_distancia(afuera)
+    return bool(dt.max() > frac_grosor * info.radio_palma)
