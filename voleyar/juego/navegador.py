@@ -28,7 +28,7 @@ class FuenteExterna:
 
 def crear_juego_navegador(modelo_camara=None, modo: str = "ia", dificultad: str = "normal") -> Juego:
     """Juego sin ventana ni hilos de modelos (en un Space la GPU se pide por llamada)."""
-    op = OpcionesJuego(modo=modo, profundidad=False, dificultad=dificultad, headless=True)
+    op = OpcionesJuego(modo=modo, profundidad=False, dificultad=dificultad, headless=True, interfaz="web")
     return Juego(op, fuente=FuenteExterna(), modelo_camara=modelo_camara)
 
 
