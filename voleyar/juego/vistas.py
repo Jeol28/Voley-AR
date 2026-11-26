@@ -37,15 +37,15 @@ TITULOS = {
     "transformers": "Transformers",
 }
 # El nombre del tema de la clase y, al lado, lo que hace en palabras de juego
-APODOS = {
-    "calibracion": "¿qué tan cerca está tu mano?",
-    "filtros": "una imagen sin ruido",
-    "histogramas": "¿cambió la luz?",
+APODOS = {  # cortos: tienen que caber en el menú
+    "calibracion": "tu distancia",
+    "filtros": "sin ruido",
+    "histogramas": "la luz",
     "umbralizacion": "¿qué se movió?",
-    "morfologia": "limpiar manchitas",
-    "segmentacion": "cada cosa por separado",
-    "caracterizacion": "¿qué golpe fue?",
-    "transformers": "¿qué está cerca?",
+    "morfologia": "limpieza",
+    "segmentacion": "cada cosa",
+    "caracterizacion": "¿qué golpe?",
+    "transformers": "cerca o lejos",
 }
 QUE_HACE = {
     "calibracion": "El juego mide qué tan cerca está tu mano. ¡Acércala rápido a la cámara para hacer un remate!",
