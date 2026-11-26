@@ -43,6 +43,7 @@ NOMBRES_LADO = {-1: "Jugador 1", 1: "Jugador 2"}
 @dataclass
 class ConfigPipeline:
     usar_calibracion: bool = True
+    espejo: bool = False  # voltear la cámara horizontalmente (como un espejo) antes de procesar
     ancho_proceso: int = 960  # el frame se reduce a este ancho para ir en tiempo real
     usar_clahe: bool = True
     clahe_clip: float = 2.0
@@ -141,7 +142,12 @@ class ResultadoFrame:
 
 def preparar_imagen(frame: np.ndarray, modelo_camara: cal.ModeloCamara | None,
                     config: ConfigPipeline) -> tuple[np.ndarray, cal.ModeloCamara]:
-    """Reduce el frame al ancho de proceso y corrige la distorsión si hay calibración."""
+    """Voltea el frame si se juega en modo espejo, lo reduce al ancho de proceso y corrige la
+    distorsión si hay calibración (con el modelo de cámara volteado igual que la imagen)."""
+    if config.espejo:
+        frame = cv2.flip(frame, 1)
+        if modelo_camara is not None:
+            modelo_camara = modelo_camara.espejo()
     h, w = frame.shape[:2]
     if config.ancho_proceso and w > config.ancho_proceso:
         e = config.ancho_proceso / w

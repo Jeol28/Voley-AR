@@ -48,7 +48,7 @@ def _sesion_con_juego(modo="2j"):
     fuente = s.FuentePantalla(modelo)
     clave, _ = jw.abrir_pagina(None)
     sesiones.obtener(clave).estado.modelo_camara = modelo  # como si hubiera calibrado en esta sesión
-    jw.guardar_ajustes(clave, "facil", 7, True)
+    jw.guardar_ajustes(clave, "facil", 7, True, espejo=False)  # los frames sintéticos ya están sin espejo
     pantallas = jw.empezar(clave, modo)
     jw.frame_juego(fuente.leer()[1], clave)
     juego = sesiones.obtener(clave).juego
@@ -122,7 +122,12 @@ def test_cada_tema_se_ve_en_la_partida_y_su_ajuste_cambia(vista):
     jugar(3)
     texto = jw.elegir_vista(clave, vista)
     out = jugar(1)
-    assert out.shape[0] == 360 and out.shape[1] > 640  # el panel del tema aparece al lado del juego
+    assert out.shape == (360, 640, 3)  # el tema se ve dentro del juego, no en un panel aparte
+    from voleyar.juego.vistas import lente
+
+    res = juego.ultimo_res
+    escena, lineas = lente(juego, res, res.imagen, vista)
+    assert lineas and escena.shape == res.imagen.shape and not np.array_equal(escena, res.imagen)
     p = PARAMETROS[vista]
     antes = p.leer(juego)
     texto2 = jw.cambiar(1)(clave, vista)

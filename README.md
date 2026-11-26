@@ -156,10 +156,11 @@ dos jugadores, `I`/`J`/`K`/`L` mueve la mano del jugador 2 y `N` cambia sus dedo
 
 ## Cada tema del curso, dentro del juego
 
-No hay una aplicación aparte para ver lo técnico: el propio juego lo muestra mientras se juega. En la partida,
-**¿Qué quieres ver?** (o `V` / `B` en la ventana) cambia de la vista normal a la de un tema. Junto al juego aparece un
-panel con lo que ese tema está haciendo **en ese mismo frame**, con sus números reales. Con **− / +** (o `[` / `]`) se
-cambia su ajuste principal y se ve el efecto sin dejar de jugar.
+No hay una aplicación ni un panel aparte para ver lo técnico: el propio juego lo muestra mientras se juega. En la
+partida, **¿Qué quieres ver?** (o `V` / `B` en la ventana) pone un "lente" sobre la escena: el mundo del juego pasa a
+verse como lo ve ese tema **en ese mismo frame** (la máscara de piel, los bordes, el mapa de profundidad…), con la
+cancha, la red y el balón encima, y una tarjeta translúcida abajo con sus números reales. Con **− / +** (o `[` / `]`)
+se cambia su ajuste principal y se ve el efecto sin dejar de jugar.
 
 | Vista | Qué muestra en vivo | Ajuste con − / + |
 |---|---|---|

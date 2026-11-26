@@ -135,15 +135,16 @@ En el navegador (y en el Space) la cámara llega como **video por WebRTC** (fast
 | Conteo de dedos, barrido 0-5 dedos a 60-79 cm | 19/24 (4 de los 5 fallos a 79 cm) |
 | Mano tocando la cara | Z = 64 cm (real 60) con watershed |
 
-## 10. Vistas por tema dentro de la partida
+## 10. Lentes por tema dentro de la partida
 
-`voleyar/juego/vistas.py` define una vista por tema del curso:
+`voleyar/juego/vistas.py` define un lente por tema del curso:
 
-- **Contenido:** cada vista recibe el `ResultadoFrame` del frame actual y devuelve una imagen (los pasos intermedios
-  de ese tema) y unas líneas con sus números reales.
-- **Ajuste:** cada vista tiene un `Parametro` (por ejemplo `config.tam_cierre`) que `[`/`]` o −/+ recorren. Como el
+- **Contenido:** cada lente toma la imagen de la cámara y el `ResultadoFrame` del frame actual y devuelve la misma
+  escena vista a través del tema (máscara, bordes, retroproyección, profundidad…), del mismo tamaño, y unas líneas
+  con sus números reales.
+- **Orden de dibujo:** el bucle aplica el lente **antes** de dibujar la cancha, la red y el balón, así que el juego
+  sigue encima. Al final se agrega una tarjeta translúcida tipo HUD con los datos.
+- **Ajuste:** cada tema tiene un `Parametro` (por ejemplo `config.tam_cierre`) que `[`/`]` o −/+ recorren. Como el
   pipeline lee `config` en cada frame, el cambio se ve en el frame siguiente.
-- **Costo:** las vistas no recalculan la visión, salvo Otsu (256 bins, para dibujar su curva) y Canny en la vista de
-  filtros.
-- **Transformers:** su vista dispara Depth Anything y OWLv2. En escritorio van en hilos; en la web, una llamada cada
-  2 s y solo mientras se mira esa vista.
+- **Transformers:** su lente dispara Depth Anything y OWLv2. En escritorio van en hilos; en la web, una llamada cada
+  2 s y solo mientras se mira ese tema.

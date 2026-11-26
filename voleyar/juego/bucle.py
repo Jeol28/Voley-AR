@@ -60,6 +60,7 @@ class OpcionesJuego:
     max_frames: int | None = None
     semilla: int | None = None
     menu: bool = False  # empezar en el menú de inicio (ventana)
+    espejo: bool = True  # ver la cámara como un espejo (se ignora con la fuente sintética)
     interfaz: str = "ventana"  # "ventana" (teclas y mouse) o "web" (botones de la página)
 
 
@@ -100,7 +101,8 @@ class Juego:
         if self.modelo_camara is None:
             print("⚠  No hay config/camara.json: se juega SIN calibración. "
                   "Calibra con `python scripts/calibrar_camara.py` o desde la UI.")
-        self.config = pl.ConfigPipeline(usar_calibracion=op.calibrado and self.modelo_camara is not None)
+        self.config = pl.ConfigPipeline(usar_calibracion=op.calibrado and self.modelo_camara is not None,
+                                        espejo=op.espejo and not self.sintetico)
         self.estado_pipe = pl.EstadoPipeline()
         self.jugadores = {lado: EstadoJugador() for lado in self.lados}
         self.partida = self._crear_partida()
@@ -221,6 +223,9 @@ class Juego:
             self.estado_pipe = pl.EstadoPipeline()
             for j in self.jugadores.values():  # la distancia de referencia cambia con la K
                 j.z_ref, j.muestras = None, []
+        elif accion == "espejo":
+            self.config.espejo = not self.config.espejo
+            self.estado_pipe = pl.EstadoPipeline()
         elif accion == "pausa":
             self.pausado = not self.pausado
         elif accion == "seguir":
@@ -252,6 +257,7 @@ class Juego:
             return [Boton(f"Dificultad de la IA: {NOMBRE_DIFICULTAD[self.op.dificultad]}", "dificultad", "d"),
                     Boton(f"Partida a {self.op.puntos} puntos", "puntos", "p"),
                     Boton(f"Usar la calibración: {cal}", "calibracion", "c"),
+                    Boton(f"Cámara como espejo: {'sí' if self.config.espejo else 'no'}", "espejo", "e"),
                     Boton("Volver", "menu", "m", principal=True)]
         if self.op.interfaz == "web":
             return []
@@ -306,12 +312,17 @@ class Juego:
                                 lados=self.lados)
         self.ultimo_res = res
         img = res.imagen.copy()
+        lineas_tema: list[str] = []
+        if self.vista != "juego":  # el mundo del juego visto a través del tema elegido
+            from voleyar.juego.vistas import lente
+
+            img, lineas_tema = lente(self, res, img, self.vista)
         if self.fase == "calibrar_piel":
             img = self._paso_calibrar_piel(frame, res, img, ahora)
-            if self.vista != "juego":  # también se puede mirar cada tema mientras se calibra la piel
-                from voleyar.juego.vistas import componer
+            if self.vista != "juego":
+                from voleyar.juego.vistas import tarjeta
 
-                img = componer(self, res, img, self.vista)
+                img = tarjeta(self, img, self.vista, lineas_tema)
             return img
 
         # --- profundidad (hilo aparte, cada N frames) -----------------------------
@@ -346,19 +357,17 @@ class Juego:
         img = ra.dibujar_escena_pantalla(img, res.pose, res.modelo, self.partida.balon.pos, ia_xy,
                                          self.partida.ia.altura_golpe, self.partida.marcas, self.partida.t,
                                          giro=int(self.partida.t * 8))
-        if self.vista in ("segmentacion", "caracterizacion"):
-            img = pl.dibujar_depuracion(res, img)
         mensaje = "" if self.partida.estado == "fin" else self.partida.mensaje
         m = self.partida.marcador
         n = self.partida.nombres
         ra.dibujar_hud(img, (m[JUGADOR], m[RIVAL]), mensaje, self._modo_texto(), self.fps, "", None, None,
                        "OWLv2" if self.usar_owl else "clásico", (n[JUGADOR], n[RIVAL]))
         self._estado_jugadores(img, res)
-        img = self._dibujar_menu(img)
         if self.vista != "juego":
-            from voleyar.juego.vistas import componer
+            from voleyar.juego.vistas import tarjeta
 
-            img = componer(self, res, img, self.vista)
+            img = tarjeta(self, img, self.vista, lineas_tema)
+        img = self._dibujar_menu(img)
         return img
 
     def _modelos(self, res: pl.ResultadoFrame, ahora: float):

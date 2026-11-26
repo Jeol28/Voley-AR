@@ -87,3 +87,23 @@ def test_la_mano_se_busca_solo_en_su_mitad():
     img, _ = s.escena_pantalla(jugadores=js)
     r = pl.procesar_frame(img, s.camara_ejemplo(), None, pl.ConfigPipeline())
     assert r.manos[-1].hay_mano and not r.manos[1].hay_mano
+
+
+def test_espejo_conserva_la_geometria():
+    """Voltear la imagen y el modelo de cámara a la vez da la misma proyección, volteada."""
+    m = s.camara_ejemplo(960, 540)
+    pts = np.array([[5.0, -3.0, 60.0], [-20.0, 8.0, 70.0], [12.0, 10.0, 55.0]])
+    p, _ = cv2.projectPoints(pts, np.zeros(3), np.zeros(3), m.K, m.dist)
+    espejo = m.espejo()
+    pts_e = pts * np.array([-1.0, 1.0, 1.0])  # el mundo visto en un espejo
+    pe, _ = cv2.projectPoints(pts_e, np.zeros(3), np.zeros(3), espejo.K, espejo.dist)
+    assert np.allclose(pe.reshape(-1, 2)[:, 0], m.ancho - 1 - p.reshape(-1, 2)[:, 0], atol=1e-6)
+    assert np.allclose(pe.reshape(-1, 2)[:, 1], p.reshape(-1, 2)[:, 1], atol=1e-6)
+
+
+def test_en_espejo_el_jugador_1_sigue_a_la_izquierda_de_la_pantalla():
+    js = s.jugadores_por_defecto(1)
+    js[0].mano, js[0].cara = (12.0, 7.0), (28.0, -20.0)  # en la imagen de la cámara la persona está a la derecha…
+    img, _ = s.escena_pantalla(jugadores=js)
+    r = pl.procesar_frame(img, s.camara_ejemplo(), None, pl.ConfigPipeline(espejo=True))
+    assert r.manos[-1].hay_mano and not r.manos[1].hay_mano  # …en espejo queda a la izquierda (jugador 1)
