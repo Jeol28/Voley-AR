@@ -71,7 +71,7 @@ COMO_SE_JUEGA = """
 
 La cara no golpea, y lo que pasa lejos, por detrás, tampoco.
 
-### Gestos (mano quieta un segundo)
+### Gestos (mano quieta medio segundo)
 | Gesto | Qué hace |
 |---|---|
 | ✋ Mano abierta | **Sacar** |
@@ -353,6 +353,54 @@ def datos_tema(clave: str):
             gr.update(value=img, visible=img is not None), menu)
 
 
+CARPETA_FOTOS = cfg.RAIZ_PROYECTO / "capturas_mano"
+
+
+def guardar_foto_mano(clave: str, carpeta=None) -> str:
+    """Guarda en tu computador el frame actual, la máscara de cada mano y lo que el juego leyó.
+
+    Sirve para afinar el conteo de dedos con fotos reales. No se sube a ningún lado
+    (la carpeta está en .gitignore y el botón no aparece en el Space).
+    """
+    import json
+    from datetime import datetime
+    from pathlib import Path
+
+    from voleyar.juego.gestos import clasificar
+
+    if EN_SPACE:
+        return "En la versión en línea no se guardan fotos."
+    s = sesiones.obtener(clave)
+    with s.cerrojo:
+        j = s.juego
+        res = None if j is None else j.ultimo_res
+        if res is None:
+            return "Primero pulsa **Empezar** en el video."
+        carpeta = Path(carpeta or CARPETA_FOTOS)
+        carpeta.mkdir(parents=True, exist_ok=True)
+        nombre = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        cv2.imwrite(str(carpeta / f"{nombre}_imagen.png"), res.imagen)
+        datos = {"espejo": j.config.espejo, "manos": {}}
+        for lado, r in res.manos.items():
+            if r.mascara_mano is not None:
+                cv2.imwrite(str(carpeta / f"{nombre}_mano{lado:+d}.png"), r.mascara_mano)
+            if r.componente is not None:
+                cv2.imwrite(str(carpeta / f"{nombre}_piel{lado:+d}.png"), r.componente)
+            a = r.analisis
+            datos["manos"][str(lado)] = {
+                "hay_mano": bool(r.hay_mano), "presente": r.presente,
+                "motivos": list(r.validacion.motivos) if r.validacion is not None else None,
+                "dedos_casco": a.n_dedos if a else None, "dedos_estables": r.dedos_estables,
+                "dedos_anillo": a.n_anillo if a else None,
+                "angulos_anillo": a.angulos_anillo if a else None,
+                "gesto": clasificar(a, r.dedos_estables) if a else None,
+                "centro_palma": list(map(float, a.centro_palma)) if a else None,
+                "radio_palma": float(a.radio_palma) if a else None,
+            }
+        (carpeta / f"{nombre}_datos.json").write_text(json.dumps(datos, indent=2, ensure_ascii=False))
+    return f"Foto guardada en `{carpeta.name}/` (solo en tu computador)."
+
+
 def guardar_ajustes(clave: str, dificultad: str, puntos: int, usar_cal: bool, espejo: bool = True) -> None:
     s = sesiones.obtener(clave)
     s.ajustes = {"dificultad": dificultad, "puntos": int(puntos), "usar_calibracion": bool(usar_cal),
@@ -514,6 +562,9 @@ def construir(demo: gr.Blocks) -> None:
                     b_menos = gr.Button("−", min_width=60, interactive=False)
                     b_mas = gr.Button("+", min_width=60, interactive=False)
                 param = gr.Markdown(_texto_param(None, "juego"), elem_classes="nota")
+                with gr.Row(visible=not EN_SPACE):  # solo en tu computador: las fotos no salen de él
+                    b_foto = gr.Button("Guardar foto de mi mano", size="sm")
+                foto_msg = gr.Markdown(elem_classes="nota")
                 datos = gr.Markdown(visible=False, elem_classes="nota")
                 graficas = gr.Image(show_label=False, interactive=False, visible=False, container=False,
                                     show_download_button=False, show_fullscreen_button=False)
@@ -545,6 +596,7 @@ def construir(demo: gr.Blocks) -> None:
     vista.change(elegir_vista, [clave, vista], [param, b_menos, b_mas])
     b_menos.click(cambiar(-1), [clave, vista], [param, b_menos, b_mas])
     b_mas.click(cambiar(1), [clave, vista], [param, b_menos, b_mas])
+    b_foto.click(guardar_foto_mano, clave, foto_msg)
     reloj_tema.tick(datos_tema, clave, [datos, graficas, vista], show_progress="hidden")
 
     video_cal.stream(VideoStreamHandler(frame_calibracion, fps=15, skip_frames=True), inputs=[video_cal, clave],

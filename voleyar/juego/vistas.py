@@ -406,8 +406,19 @@ def _caracterizacion(juego, res, img):
         elif r.hay_mano:
             from voleyar.juego.gestos import NOMBRES, clasificar
 
-            n = r.dedos_estables if r.dedos_estables is not None else r.analisis.n_dedos
-            g = clasificar(r.analisis, n)
+            a = r.analisis
+            n = r.dedos_estables if r.dedos_estables is not None else a.n_dedos
+            if a.n_anillo is not None and a.n_anillo > n:
+                n = a.n_anillo
+            g = clasificar(a, n)
+            c = (int(a.centro_palma[0]), int(a.centro_palma[1]))
+            for R in a.radios_anillo:  # los círculos con los que se cuentan los dedos…
+                cv2.circle(out, c, int(R), (180, 182, 196), 1, cv2.LINE_AA)
+            if a.radios_anillo:
+                R = a.radios_anillo[len(a.radios_anillo) // 2]
+                for ang in a.angulos_anillo:  # …y dónde cruzan cada dedo
+                    p = (int(c[0] + R * np.cos(np.radians(ang))), int(c[1] + R * np.sin(np.radians(ang))))
+                    cv2.circle(out, p, 6, vis.BGR_NARANJA, -1, cv2.LINE_AA)
             _etiqueta_mano(out, r, f"{n} dedos" + (f" · {NOMBRES[g].lower()}" if g else ""))
     hechos = ", ".join(f"{TIPOS_GOLPE[t]} {n}" for t, n in juego.stats["tipos"].items()) or "todavía ninguno"
     lineas = ["Gestos con la mano quieta: abierta = sacar · L con pulgar e índice = pausa · un dedo arriba = "

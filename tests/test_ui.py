@@ -145,3 +145,16 @@ def test_sin_ajuste_disponible_los_botones_se_apagan_y_explican_por_que():
     assert not menos["interactive"] and "calibra la cámara" in texto
     texto, menos, mas = jw.elegir_vista(clave, "filtros")
     assert menos["interactive"] and mas["interactive"]
+
+
+def test_guardar_foto_de_la_mano_solo_en_local(tmp_path):
+    import json
+
+    clave, juego, _, jugar = _sesion_con_juego()
+    jugar(3)
+    msg = jw.guardar_foto_mano(clave, carpeta=tmp_path)
+    assert "guardada" in msg
+    archivos = sorted(p.name for p in tmp_path.iterdir())
+    assert any(n.endswith("_imagen.png") for n in archivos)
+    datos = json.loads(next(tmp_path.glob("*_datos.json")).read_text())
+    assert set(datos["manos"]) == {"-1", "1"} and "dedos_anillo" in datos["manos"]["-1"]

@@ -42,7 +42,8 @@ def test_el_gesto_se_activa_tras_un_segundo_quieto_y_una_sola_vez():
     assert disparado is None and prog.gesto == "abierta" and abs(prog.fraccion - 0.5) < 1e-6
     assert g.actualizar(-1, mano, 1.05, todos)[0] == "abierta"
     assert g.actualizar(-1, mano, 3.0, todos)[0] is None  # no se repite mientras siga igual
-    g.actualizar(-1, None, 3.1, todos)  # baja la mano…
+    for k in range(4):  # baja la mano (más que un frame suelto mal leído)…
+        g.actualizar(-1, None, 3.1 + 0.01 * k, todos)
     g.actualizar(-1, mano, 3.2, todos)
     assert g.actualizar(-1, mano, 4.3, todos)[0] == "abierta"  # …y al volver a mostrarla, sí
 
@@ -107,3 +108,24 @@ def test_al_terminar_un_dedo_arriba_pide_la_revancha():
     assert j.partida.estado == "fin"
     assert _sostener(j, jug, ("indice",), lambda: j.partida.estado != "fin")
     assert j.partida.marcador == {"jugador": 0, "rival": 0}
+
+
+def test_un_frame_mal_leido_no_reinicia_el_anillo():
+    g = LectorGestos(espera=0.5)
+    todos = {"abierta", "pulgar_indice", "dedo_arriba", "dos_dedos"}
+    g.actualizar(-1, _mano(), 0.0, todos)
+    g.actualizar(-1, _mano(), 0.2, todos)
+    g.actualizar(-1, _mano(("indice", "medio")), 0.3, todos)  # un frame lo leyó como ✌
+    assert g.actualizar(-1, _mano(), 0.55, todos)[0] == "abierta"  # y el anillo siguió llenándose
+
+
+def test_si_se_pierde_un_dedo_el_conteo_por_anillo_lo_recupera():
+    import cv2
+
+    m = s.silueta_mano_2d(5, angulo=90, con_brazo=False)
+    a = car.analizar_mano(m, (0.0, 1.0))
+    assert a.n_anillo == 5 and len(a.angulos_anillo) == 5
+    from types import SimpleNamespace
+
+    perdida = SimpleNamespace(**{**a.__dict__, "n_dedos": 3})  # los valles del casco vieron solo 3
+    assert clasificar(perdida, 3) == "abierta"

@@ -60,7 +60,7 @@ Los transformers se usan solo en inferencia, con pesos públicos de Hugging Face
   | Mano abierta (4-5 dedos) | **Toque suave** | alto y corto |
   | Un objeto grande y compacto (un cuaderno) | **Bloqueo** | rebota corto, detrás de la red |
 
-- **Gestos** (mano quieta un segundo; un anillo alrededor de la mano se va llenando): ✋ mano abierta = sacar,
+- **Gestos** (mano quieta medio segundo; un anillo alrededor de la mano se va llenando): ✋ mano abierta = sacar,
   pulgar e índice en L = pausa / seguir, ☝ un dedo arriba = revancha, ✌ dos dedos juntos = cambiar lo que se ve.
 - **Plano de juego:** al empezar se mide a qué distancia de la cámara está la mano de cada jugador; si golpea solo con
   la mano reconocida (sin moverla), el golpe vale si la mano está en ese plano.
@@ -174,7 +174,7 @@ cambia su ajuste y se nota en el juego.
 | 4 · Umbralización | Otsu sobre \|frame − fondo\| decide en cada frame cuánto tiene que cambiar un píxel para moverse (con un mínimo). | Con un mínimo alto, los objetos con poco contraste dejan de golpear; con uno bajo, el ruido sí. | umbral mínimo del movimiento |
 | 5 · Morfología | Apertura quita el ruido suelto, cierre une el objeto y una **dilatación** agranda su zona de golpe. | Zona "gigante": el balón se devuelve aunque la mano pase cerca (ayuda a niños y principiantes). | tamaño de la zona de golpe |
 | 6 · Segmentación | MOG2 modela el fondo; las componentes conexas separan cada objeto; la cara (Viola-Jones) se descarta. | Si "la cara golpea", la cabeza devuelve el balón sin querer. | la cara golpea sí / no |
-| 7 · Caracterización | **Gestos de control** con la mano quieta 1 s (dedos por casco convexo y defectos, ángulo entre puntas): mano abierta = sacar, L con pulgar e índice = pausa, un dedo arriba = revancha, dos dedos juntos = cambiar tema. Además, dedos, área y solidez de lo que toca el balón deciden el **tipo de golpe**. | Cambiar `k` cambia cuántos dedos ve y, con eso, los gestos y el golpe. | umbral de los dedos (k·r) |
+| 7 · Caracterización | **Gestos de control** con la mano quieta medio segundo (dedos por casco convexo y defectos **y** por círculos alrededor de la palma, se toma el mayor; ángulo entre dedos para la L): mano abierta = sacar, L con pulgar e índice = pausa, un dedo arriba = revancha, dos dedos juntos = cambiar tema. Además, dedos, área y solidez de lo que toca el balón deciden el **tipo de golpe**. | Cambiar `k` cambia cuántos dedos ve y, con eso, los gestos y el golpe. | umbral de los dedos (k·r) |
 | 8 · Transformers | Depth Anything mide qué está cerca de la cámara: lo que pasa por detrás no golpea. | Con cercanía 0 cualquiera que pase al fondo devuelve el balón. | cercanía mínima |
 
 En tu computador Depth Anything corre en un hilo aparte (~30 ms en la GPU del Mac). En el Space, con ZeroGPU, solo se

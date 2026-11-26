@@ -175,9 +175,12 @@ frame → suavizado (filtros) → histograma de gris vs. referencia (Bhattachary
   y vuelta (error < 1 px). El percentil 75 del desplazamiento, dividido por el tiempo entre frames, da la rapidez en
   anchos de imagen por segundo: desde 0.5 empieza a sumar potencia y en 1.6 llega al máximo. (Antes se intentó medir
   el desenfoque por movimiento, pero una webcam con buena luz casi no difumina.)
-- **Caracterización (gestos):** `voleyar/juego/gestos.py` clasifica la mano con los dedos estables y, si son dos, con
-  el ángulo entre las puntas visto desde el centro de la palma (> 35° = pulgar e índice; si no, ✌). `LectorGestos`
-  dispara un gesto tras 1 s con la palma casi quieta (< 0.35 radios por frame), una sola vez hasta que cambie. Qué
+- **Caracterización (gestos):** `voleyar/juego/gestos.py` clasifica la mano con el mayor de dos conteos de dedos
+  (defectos del casco convexo, estables en 5 frames, y `dedos_por_anillo`: arcos de piel en tres círculos de 1.5, 1.8
+  y 2.1 radios de palma, mediana) y, si son dos, con el ángulo entre ellos (> 35° = pulgar e índice; si no, ✌).
+  `LectorGestos` dispara un gesto tras 0.5 s con la palma casi quieta (< 0.5 radios por frame), tolera hasta 3
+  frames sueltos mal leídos y lo dispara una sola vez hasta que cambie. "Guardar foto de mi mano" (solo en local,
+  carpeta `capturas_mano/`, fuera de git) guarda frame, máscaras y lecturas para afinar con fotos reales. Qué
   gestos valen depende del momento: sacar solo en el saque propio, revancha solo al terminar.
 - **Calibración:** la velocidad `vz` de la mano hacia la cámara es la pendiente de `Z = f·W/w` en los últimos
   0.3 s. Con `vz ≤ −60 cm/s` el golpe es un remate.
