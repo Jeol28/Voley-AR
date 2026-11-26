@@ -84,3 +84,23 @@ h2, h3 {{ color: {NEUTRO}; }}
 .dato-mal {{ color: #FF4C4C; font-weight: 600; }}
 .prose table td, .prose table th {{ padding: 4px 10px; }}
 """
+
+CSS += f"""
+/* --- Interfaz de juego --- */
+.nav-holder {{ display: none !important; }}  /* sin barra de navegación: el laboratorio se abre por enlace */
+.pantalla {{ max-width: 900px; margin: 0 auto !important; }}
+.pantalla-juego {{ max-width: 1400px; margin: 0 auto !important; }}
+.hero {{ text-align: center; padding: 56px 0 18px 0; }}
+.hero h1 {{ font-size: 5.2rem !important; font-weight: 800; letter-spacing: -0.03em; margin: 0;
+           color: {NEUTRO}; line-height: 1; }}
+.hero h1::after {{ content: ""; display: block; width: 120px; height: 8px; background: {NARANJA};
+                  border-radius: 4px; margin: 22px auto 0 auto; }}
+.hero .lema {{ font-size: 1.3rem; color: {NEUTRO_TENUE}; margin-top: 22px; }}
+.fila-botones {{ justify-content: center; gap: 18px !important; margin-top: 14px; }}
+.boton-grande {{ font-size: 1.55rem !important; font-weight: 700 !important; padding: 26px 18px !important;
+                border-radius: 14px !important; min-height: 92px; }}
+.boton-medio {{ font-size: 1.1rem !important; padding: 14px !important; border-radius: 12px !important; }}
+.chip {{ text-align: center; color: {NEUTRO_TENUE}; margin-top: 26px; font-size: 0.98rem; }}
+.chip.ok {{ color: #00C896; }}
+.nota {{ color: {NEUTRO_TENUE}; }}
+"""
