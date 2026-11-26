@@ -26,7 +26,7 @@ NOTA_SPACE = """
 > **2 jugadores** en el menú, un jugador a cada lado de la imagen. Para más precisión, **Calibrar cámara**. La
 > calibración y la piel son de tu sesión y no se guardan en el servidor (descarga `camara.json` para usarlo en tu
 > equipo). Depth Anything y OWLv2 piden la GPU solo cuando se usan. La versión de escritorio (`python jugar.py`) es
-> más fluida. El laboratorio con cada tema del curso está en `/laboratorio`.
+> más fluida. Durante la partida, **¿Qué quieres ver?** muestra en vivo cómo usa el juego cada tema del curso.
 """
 
 

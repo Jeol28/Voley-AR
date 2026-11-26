@@ -13,11 +13,20 @@ from voleyar.core import config as cfg
 from voleyar.entorno import EN_SPACE
 from voleyar.ui.comunes import CONCURRENCIA_VIVO, sesion_componente
 from voleyar.ui.estado import ESTADO, con_sesion
-from voleyar.ui.pestanas import calibracion as cal_ui
+from voleyar.ui import calibracion_web as cal_ui
 from voleyar.utils import visualizacion as vis
 
 PANTALLAS = ("inicio", "como", "ajustes", "calibrar", "juego")
-AJUSTES_INICIALES = {"dificultad": "normal", "puntos": 15, "ver_deteccion": False, "usar_calibracion": True}
+
+
+def _opciones_vista():
+    from voleyar.juego.vistas import TITULOS, VISTAS
+
+    return [("Solo el juego" if v == "juego" else f"{i} · {TITULOS[v]}", v) for i, v in enumerate(VISTAS)]
+
+
+OPCIONES_VISTA = _opciones_vista()
+AJUSTES_INICIALES = {"dificultad": "normal", "puntos": 15, "usar_calibracion": True}
 CAMARA_JUEGO = gr.WebcamOptions(mirror=False, constraints={"video": {"width": {"ideal": 960},
                                                                    "height": {"ideal": 540}}})
 CAMARA_CALIBRAR = gr.WebcamOptions(mirror=False, constraints={"video": {"width": {"ideal": 1280},
@@ -58,6 +67,15 @@ Calibra la cámara una vez con el tablero (botón **Calibrar cámara** del inici
 reales a qué distancia está cada mano.
 """
 
+VER_TEMAS = """
+### ¿Cómo te ve el juego?
+Durante la partida, **¿Qué quieres ver?** cambia la pantalla a cualquiera de los temas de visión artificial que el juego
+usa en ese momento: **calibración** (la lente y la distancia de tu mano), **filtros**, **histogramas** (el color de tu
+piel), **umbralización**, **morfología**, **segmentación** (tu mano, tu brazo y tu cara), **caracterización** (tus
+dedos) y **transformers** (profundidad y detección por texto). Con **−** y **+** cambias el ajuste de ese tema y ves el
+efecto en vivo, sin dejar de jugar.
+"""
+
 CALIBRAR_INTRO = """
 Calibrar la cámara le enseña al juego cómo es **tu** lente, para que la cancha virtual y tus manos encajen y las
 distancias salgan en centímetros reales. Se hace una sola vez.
@@ -84,7 +102,6 @@ def chip_camara() -> str:
 
 
 def _aplicar_ajustes(juego, ajustes: dict) -> None:
-    juego.depurar = bool(ajustes.get("ver_deteccion"))
     juego.config.usar_calibracion = bool(ajustes.get("usar_calibracion")) and juego.modelo_camara is not None
 
 
@@ -129,8 +146,34 @@ def accion(nombre: str):
     return manejador
 
 
-def guardar_ajustes(dificultad: str, puntos: int, ver: bool, usar_cal: bool):
-    return {"dificultad": dificultad, "puntos": int(puntos), "ver_deteccion": bool(ver), "usar_calibracion": bool(usar_cal)}
+def guardar_ajustes(dificultad: str, puntos: int, usar_cal: bool):
+    return {"dificultad": dificultad, "puntos": int(puntos), "usar_calibracion": bool(usar_cal)}
+
+
+def elegir_vista(juego, vista: str):
+    if juego is not None:
+        juego.vista = vista
+    return juego, _texto_param(juego, vista)
+
+
+def _texto_param(juego, vista: str) -> str:
+    from voleyar.juego.vistas import QUE_HACE, texto_parametro
+
+    if vista == "juego" or juego is None:
+        return ""
+    return f"{QUE_HACE[vista]}  \n**−/+ cambia** {texto_parametro(juego, vista)}"
+
+
+def cambiar(paso: int):
+    def manejador(juego, vista: str):
+        from voleyar.juego.vistas import cambiar_parametro
+
+        if juego is not None:
+            cambiar_parametro(juego, vista, paso)
+        return juego, _texto_param(juego, vista)
+
+    manejador.__name__ = "parametro_mas" if paso > 0 else "parametro_menos"
+    return manejador
 
 
 # --------------------------------------------------------------------------- #
@@ -181,8 +224,7 @@ def construir(demo: gr.Blocks) -> None:
     with gr.Column(visible=False, elem_classes="pantalla") as p_como:
         gr.Markdown("## Cómo se juega")
         gr.Markdown(COMO_SE_JUEGA)
-        gr.Markdown("¿Quieres ver cómo funciona por dentro (filtros, histogramas, segmentación…)? "
-                    "Abre el [laboratorio](laboratorio).", elem_classes="nota")
+        gr.Markdown(VER_TEMAS)
         v1 = gr.Button("Volver", variant="primary", elem_classes="boton-medio")
 
     # ---------------------------------------------------------------- ajustes
@@ -191,7 +233,6 @@ def construir(demo: gr.Blocks) -> None:
         dificultad = gr.Radio([("Fácil", "facil"), ("Normal", "normal"), ("Difícil", "dificil")], value="normal",
                               label="Dificultad de la IA")
         puntos = gr.Radio([("7", 7), ("11", 11), ("15", 15)], value=15, label="Puntos para ganar")
-        ver = gr.Checkbox(label="Ver cómo te detecta el juego (contornos, dedos y distancias)", value=False)
         usar_cal = gr.Checkbox(label="Usar la calibración de la cámara (apágala para comparar)", value=True)
         v2 = gr.Button("Listo", variant="primary", elem_classes="boton-medio")
 
@@ -241,9 +282,18 @@ def construir(demo: gr.Blocks) -> None:
                     b_revancha = gr.Button("Revancha")
                     b_piel = gr.Button("Recalibrar piel")
                 b_menu = gr.Button("Menú principal")
-            pantalla = gr.Image(label="Voley AR", height=600, scale=9, show_label=False)
+            with gr.Column(scale=9):
+                with gr.Row(equal_height=True):
+                    vista = gr.Dropdown(OPCIONES_VISTA, value="juego", label="¿Qué quieres ver?", scale=4)
+                    b_menos = gr.Button("−", scale=1, min_width=60)
+                    b_mas = gr.Button("+", scale=1, min_width=60)
+                param = gr.Markdown(elem_classes="nota")
+                pantalla = gr.Image(label="Voley AR", height=600, show_label=False)
 
     pantallas = [p_inicio, p_como, p_aj, p_cal, p_juego]
+    vista.change(elegir_vista, [juego, vista], [juego, param])
+    b_menos.click(cambiar(-1), [juego, vista], [juego, param])
+    b_mas.click(cambiar(1), [juego, vista], [juego, param])
 
     # --------------------------------------------------------------- eventos
     b_como.click(lambda: ir("como"), None, pantallas)
@@ -251,7 +301,7 @@ def construir(demo: gr.Blocks) -> None:
     b_cal.click(lambda: ir("calibrar"), None, pantallas)
     for b in (v1, v3):
         b.click(con_sesion(lambda: (chip_camara(), *ir("inicio"))), [S], [S, chip, *pantallas])
-    v2.click(guardar_ajustes, [dificultad, puntos, ver, usar_cal], ajustes).then(lambda: ir("inicio"), None, pantallas)
+    v2.click(guardar_ajustes, [dificultad, puntos, usar_cal], ajustes).then(lambda: ir("inicio"), None, pantallas)
     b_ia.click(con_sesion(lambda j, a: empezar(j, "ia", a)), [S, juego, ajustes], [S, juego, modo, *pantallas])
     b_2j.click(con_sesion(lambda j, a: empezar(j, "2j", a)), [S, juego, ajustes], [S, juego, modo, *pantallas])
 
