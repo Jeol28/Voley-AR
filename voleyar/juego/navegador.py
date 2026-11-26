@@ -29,7 +29,11 @@ class FuenteExterna:
 def crear_juego_navegador(modelo_camara=None, modo: str = "ia", dificultad: str = "normal") -> Juego:
     """Juego sin ventana ni hilos de modelos (en un Space la GPU se pide por llamada)."""
     op = OpcionesJuego(modo=modo, profundidad=False, dificultad=dificultad, headless=True, interfaz="web")
-    return Juego(op, fuente=FuenteExterna(), modelo_camara=modelo_camara)
+    juego = Juego(op, fuente=FuenteExterna(), modelo_camara=modelo_camara)
+    # En el servidor cada milisegundo cuenta: se procesa a 640 px y las caras se buscan cada 6 frames
+    juego.config.ancho_proceso = 640
+    juego.config.caras_cada = 6
+    return juego
 
 
 def paso_navegador(juego: Juego, frame_bgr: np.ndarray) -> np.ndarray | None:
