@@ -131,6 +131,27 @@ Cada pestaña tiene sliders para los parámetros, el resultado junto a la origin
 corrección de distorsión → pose → CLAHE → retroproyección de piel → umbral + morfología → contorno de la mano →
 casco convexo y punta del dedo → posición en cm → render AR. La pestaña **Jugar** lanza el juego en su propia ventana.
 
+## Despliegue en Hugging Face Spaces (ZeroGPU)
+
+La misma UI corre como Space de Gradio con ZeroGPU:
+
+```bash
+hf auth login                                        # una vez
+python scripts/desplegar_space.py --repo Jeol28/voley-ar
+```
+
+El script arma `dist/space/` (código, imprimibles, `despliegue/requirements.txt` y el README con su cabecera YAML),
+crea el Space con hardware `zero-a10g` y lo sube. Diferencias de la versión en línea:
+
+- **ZeroGPU:** `import spaces` va antes que torch (`voleyar/entorno.py`). Los modelos se cargan al arrancar y la
+  inferencia va en funciones `@spaces.GPU` que reciben y devuelven solo datos
+  (`transformers_models.estimar_profundidad` y `detectar_manos`). En local el decorador no hace nada.
+- **Estado por sesión:** la calibración y la piel viven en el `gr.State` de cada visitante, no en variables
+  globales ni en el disco del servidor. La calibración se descarga como `camara.json`.
+- **Jugar en el navegador:** no hay ventana de OpenCV en el servidor, así que la pestaña Jugar recibe la cámara del
+  navegador (`gr.Image` con streaming) y cada frame pasa por el mismo `Juego.paso` (`voleyar/juego/navegador.py`).
+  Los botones reemplazan a las teclas.
+
 ## Estrategia de ramificación
 
 Se usó un flujo tipo *Git Flow* simplificado:
@@ -139,7 +160,8 @@ Se usó un flujo tipo *Git Flow* simplificado:
 - **`develop`**: rama de integración. Cada tema entra aquí cuando sus pruebas pasan.
 - **`feature/<tema>`**: una rama por módulo (`feature/calibracion`, `feature/filtros`, `feature/histogramas`,
   `feature/umbralizacion`, `feature/morfologia`, `feature/segmentacion`, `feature/caracterizacion`,
-  `feature/transformers`, `feature/juego`, `feature/ui`, `feature/docs`). Sale de `develop`, se trabaja con commits
+  `feature/transformers`, `feature/juego`, `feature/ui`, `feature/docs` y, después de la v1.0.0,
+  `feature/despliegue`). Sale de `develop`, se trabaja con commits
   pequeños ([Conventional Commits](https://www.conventionalcommits.org/es/): `feat`, `fix`, `test`, `docs`, `chore`)
   y vuelve a `develop` con `git merge --no-ff`, para que cada tema quede visible como una unidad en el historial.
 
@@ -352,11 +374,12 @@ Ninguna prueba necesita la cámara. Usan escenas sintéticas de verdad conocida:
 voleyar/
   core/      calibracion, filtros, histogramas, umbralizacion, morfologia, segmentacion,
              caracterizacion, transformers_models, pipeline, config
-  juego/     fisica, ia_rival, partida, render_ar, asincrono, bucle
+  juego/     fisica, ia_rival, partida, render_ar, asincrono, bucle, navegador
   ui/        app, tema, estado, comunes, pestanas/ (una por tema + pipeline + jugar)
   utils/     camara, io, visualizacion, sinteticos
 config/      camara.json (lo crea la calibración)
-scripts/     generar_imprimibles.py, calibrar_camara.py
+scripts/     generar_imprimibles.py, calibrar_camara.py, desplegar_space.py
+despliegue/  requirements.txt y cabecera del README para el Space
 tests/       una prueba por módulo (+ juego y UI)
 docs/        arquitectura.md, guion_video.md, imprimibles/, capturas/
 app.py       lanza la UI
