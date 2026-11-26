@@ -27,8 +27,8 @@ Los transformers se usan solo en inferencia, con pesos públicos de Hugging Face
 |---|---|
 | ![Partida con el panel de depuración](docs/capturas/juego_depuracion.png) | ![Con y sin calibración](docs/capturas/con_sin_calibracion.png) |
 | *Partida de dos jugadores con el panel de depuración (tecla D)* | *Distancia de las manos con y sin calibración* |
-| ![Pestaña Pipeline](docs/capturas/ui_pipeline.png) | ![Clásico vs. OWLv2](docs/capturas/ui_transformers.png) |
-| *Pipeline paso a paso en la UI* | *Detección clásica vs. OWLv2 y profundidad* |
+| ![Vista de un tema en la partida](docs/capturas/ui_pipeline.png) | ![Vista de transformers](docs/capturas/ui_transformers.png) |
+| *Vista de morfología en plena partida* | *Vista de transformers: profundidad y OWLv2* |
 
 > Las imágenes de `docs/capturas/` son marcadores de posición: se reemplazan por capturas reales de la cámara (ver
 > `docs/capturas/README.md`).
@@ -88,7 +88,7 @@ Solo hace falta **el tablero de calibración**. Está en [`docs/imprimibles/`](d
 | Archivo | Contenido |
 |---|---|
 | `tablero.pdf` | Tablero de 10 × 7 cuadros (9 × 6 esquinas interiores), cuadro de 25 mm y regla de 10 cm. **Necesario.** |
-| `cancha.pdf` | Cancha con 4 marcadores ArUco de la versión 1. Opcional: solo para la demo de pose con `solvePnP` en la UI. |
+| `cancha.pdf` | Cancha con 4 marcadores ArUco de la versión 1. El juego actual no la usa (la pose con `solvePnP` sigue en `core/calibracion.py` y en sus pruebas). |
 
 Imprime en tamaño carta al **100 % ("Tamaño real")**, sin "Ajustar a la página". Mide un cuadro con una regla (25 mm)
 y pega el tablero sobre cartón para que quede plano.
@@ -105,12 +105,12 @@ y pega el tablero sobre cartón para que quede plano.
    dónde moverlo (esquinas de la imagen, inclinado unos 30°, cerca y lejos). Las vistas casi iguales se rechazan.
    Teclas: `ESPACIO` captura, `A` captura automática, `C` calibra, `R` reinicia, `Q` sale.
 3. Con 15 vistas o más pulsa `C`. Se muestran `K`, `[k1 k2 p1 p2 k3]` y el **error de reproyección RMS** (por debajo de
-   0.5 px es bueno). El resultado se guarda en `config/camara.json`, que cargan el juego y la UI.
+   0.5 px es bueno). El resultado se guarda en `config/camara.json`, que carga el juego.
 4. Comprueba la ventana "Original / Sin distorsión": las rectas cerca de los bordes deben quedar rectas.
 
-También se puede calibrar desde el juego en el navegador (**Calibrar cámara**, en el menú de inicio). En el
-laboratorio, la subpestaña **Distancia de la mano: con y sin calibración** muestra la distancia estimada de cada mano con la `K` calibrada y con la aproximada (f = ancho). En la
-escena de ejemplo: con calibración, 56 y 61 cm (reales: 60 y 64); sin calibración, 77 y 83 cm.
+También se puede calibrar desde el juego en el navegador (**Calibrar cámara**, en el menú de inicio). Durante la
+partida, la vista **1 · Calibración** muestra la distancia de cada mano con la `K` calibrada y la que daría la
+aproximada (f = ancho). En las pruebas: con calibración, 56 y 61 cm (reales: 60 y 64); sin calibración, 77 y 83 cm.
 
 ## Cómo jugar
 
@@ -132,8 +132,8 @@ python app.py                      # http://127.0.0.1:7860 (o el Space en línea
 ```
 
 1. En el **menú de inicio** elige **Contra la IA** o **2 jugadores**. En **Ajustes** están la dificultad de la IA, los
-   puntos para ganar (7, 11 o 15), "Ver cómo te detecta" y "Usar la calibración" (para comparar). Desde el inicio
-   también se abren **Cómo se juega** y **Calibrar cámara**, que es un asistente con el tablero.
+   puntos para ganar (7, 11 o 15) y "Usar la calibración" (para comparar). Desde el inicio también se abren **Cómo se
+   juega** y **Calibrar cámara**, que es un asistente con el tablero.
 2. Pongan la cámara frente a ustedes, a unos 50-75 cm: el jugador 1 a la izquierda y el jugador 2 a la derecha.
 3. Aparece un **recuadro naranja** en la mitad de cada jugador. Cúbranlo con la palma, a la distancia a la que van a
    jugar, y pulsen **¡Listo!** (o `ESPACIO` en la ventana): se aprende el color de la piel de cada uno.
@@ -146,39 +146,34 @@ En la ventana todo se elige con el mouse o con la tecla que aparece en cada bot�
 |---|---|
 | `ESPACIO` | capturar la piel de cada jugador |
 | `ESC` | pausa: seguir, recalibrar la piel, reiniciar, menú principal o salir |
-| `D` | ver cómo te detecta: máscaras de piel, caras, contornos, casco convexo, puntas, distancias, profundidad y FPS |
+| `V` / `B` | siguiente / anterior tema: cómo te ve el juego, en vivo (ver la sección siguiente) |
+| `[` / `]` | cambiar el ajuste del tema que se está viendo |
 | `C` | con calibración / sin calibración |
 | `O` | detector de la mano: clásico / OWLv2 |
 
 En modo sintético: el mouse mueve la mano del jugador 1, `0`-`5` cambia sus dedos y `W`/`S` la acerca o la aleja. Con
 dos jugadores, `I`/`J`/`K`/`L` mueve la mano del jugador 2 y `N` cambia sus dedos.
 
-## Laboratorio: el juego por dentro
+## Cada tema del curso, dentro del juego
 
-El juego no muestra pestañas técnicas. Para explorar cada tema del curso existe el **laboratorio**, en
-`/laboratorio` (enlazado desde "Cómo se juega") o con:
+No hay una aplicación aparte para ver lo técnico: el propio juego lo muestra mientras se juega. En la partida,
+**¿Qué quieres ver?** (o `V` / `B` en la ventana) cambia de la vista normal a la de un tema. Junto al juego aparece un
+panel con lo que ese tema está haciendo **en ese mismo frame**, con sus números reales. Con **− / +** (o `[` / `]`) se
+cambia su ajuste principal y se ve el efecto sin dejar de jugar.
 
-```bash
-python laboratorio.py              # http://127.0.0.1:7861
-```
+| Vista | Qué muestra en vivo | Ajuste con − / + |
+|---|---|---|
+| 1 · Calibración | La imagen de la lente con las rectas curvadas y la corregida; `f`, centro, `k1`, error de reproyección; la distancia de cada mano con y sin calibración. | usar la calibración |
+| 2 · Filtros | La zona de las manos antes y después del suavizado, con los bordes de Canny; el ruido (σ del laplaciano) antes y después. | gaussiano / mediana / bilateral / ninguno |
+| 3 · Histogramas | El histograma Cr-Cb de la piel de cada jugador y su retroproyección; el contraste antes y después de CLAHE. | clip de CLAHE |
+| 4 · Umbralización | La curva de varianza entre clases de Otsu y el histograma de cada mitad, con el umbral T elegido; la máscara binaria. | umbral mínimo de Otsu |
+| 5 · Morfología | La máscara antes y después de apertura + cierre; regiones, ruido quitado y huecos rellenados. | tamaño del cierre |
+| 6 · Segmentación | Mano (blanco), brazo (naranja) y caras de Viola-Jones (rojo) en cada mitad; si se cortó el brazo o actuó el watershed. | corte por distancia o por ancho |
+| 7 · Caracterización | La silueta de cada mano con casco convexo, valles y puntas; dedos, gesto, área en cm², solidez y circularidad. | umbral de los dedos (k·r) |
+| 8 · Transformers | El mapa de profundidad de Depth Anything y las cajas de OWLv2; latencias y si cada mano está delante de su cara. | jugar con OWLv2 |
 
-Tiene una pestaña por tema (Calibración, Filtros, Histogramas, Umbralización, Morfología, Segmentación,
-Caracterización y Transformers), más **Pipeline**. Cada pestaña acepta la **cámara web en vivo** (`gr.Image` con
-streaming), una **imagen subida** o una **escena de ejemplo sintética** de dos personas con distancias conocidas. Cada
-una tiene sliders para los parámetros, el resultado junto a la original y un desplegable **"¿Qué está pasando?"** con la
-teoría y las fórmulas.
-
-La pestaña **Pipeline** muestra los 9 pasos sobre el mismo frame:
-
-1. corrección de distorsión;
-2. mitades y caras;
-3. CLAHE;
-4. retroproyección de la piel de cada jugador;
-5. Otsu y morfología;
-6. mano, brazo y cara separados;
-7. casco convexo y puntas;
-8. distancia y punto en el plano de la red;
-9. render AR.
+Las vistas también funcionan durante la calibración de la piel: la de Histogramas muestra el modelo recién
+aprendido.
 
 ## Despliegue en Hugging Face Spaces (ZeroGPU)
 
@@ -202,12 +197,13 @@ sube al Space con hardware `zero-a10g`. Diferencias de la versión en línea:
 
 Se usó un flujo tipo *Git Flow* simplificado:
 
-- **`main`**: versiones estables y entregables (tags `v1.0.0`, `v1.1.0`, `v2.0.0` y `v2.1.0`). Solo recibe merges desde `develop`.
+- **`main`**: versiones estables y entregables (tags `v1.0.0`, `v1.1.0`, `v2.0.0`, `v2.1.0` y `v2.2.0`). Solo recibe merges desde `develop`.
 - **`develop`**: rama de integración. Cada tema entra cuando sus pruebas pasan.
 - **`feature/<tema>`**: una rama por módulo. Para la v1: `feature/calibracion`, `feature/filtros`,
   `feature/histogramas`, `feature/umbralizacion`, `feature/morfologia`, `feature/segmentacion`,
   `feature/caracterizacion`, `feature/transformers`, `feature/juego`, `feature/ui` y `feature/docs`. Después vinieron
-  `feature/despliegue` (v1.1.0), `feature/multijugador` (v2.0.0) y `feature/interfaz-juego` (v2.1.0). Cada rama sale de `develop`, se trabaja con commits
+  `feature/despliegue` (v1.1.0), `feature/multijugador` (v2.0.0), `feature/interfaz-juego` (v2.1.0) y
+  `feature/vistas-en-juego` (v2.2.0). Cada rama sale de `develop`, se trabaja con commits
   pequeños ([Conventional Commits](https://www.conventionalcommits.org/es/)) y vuelve con `git merge --no-ff`.
 
 ```mermaid
@@ -253,7 +249,7 @@ gitGraph
     checkout develop
     merge feature/juego
     branch feature/ui
-    commit id: "feat: pestañas Gradio"
+    commit id: "feat: interfaz Gradio"
     checkout develop
     merge feature/ui
     branch feature/docs
@@ -284,6 +280,13 @@ gitGraph
     merge feature/interfaz-juego
     checkout main
     merge develop tag: "v2.1.0"
+    checkout develop
+    branch feature/vistas-en-juego
+    commit id: "feat: temas en vivo en la partida"
+    checkout develop
+    merge feature/vistas-en-juego
+    checkout main
+    merge develop tag: "v2.2.0"
 ```
 
 ## Arquitectura
@@ -293,8 +296,8 @@ El código sigue una **arquitectura en capas**: cada capa solo llama a la de aba
 ```mermaid
 flowchart TB
     subgraph Presentacion["Presentación"]
-        UI["voleyar/ui · Gradio<br/>juego_web (menús y partida) + laboratorio (/laboratorio)"]
-        BUCLE["voleyar/juego/bucle.py + menus.py · ventana OpenCV<br/>navegador.py · juego en el navegador"]
+        UI["voleyar/ui · Gradio<br/>juego_web: menús, calibración y partida"]
+        BUCLE["voleyar/juego/bucle.py + menus.py + vistas.py<br/>ventana OpenCV · navegador.py"]
     end
     subgraph Juego["Dominio del juego"]
         FIS["fisica.py<br/>gravedad, rebotes, red"]
@@ -361,7 +364,7 @@ El pipeline de las dos manos tarda **≈ 20-25 ms por frame** a 960 px (la casca
 
 | Módulo | Qué hace | Cómo participa en el juego |
 |---|---|---|
-| `core/calibracion.py` | Pinhole, captura guiada, `cv2.calibrateCamera` (Zhang), corrección de distorsión, cámara virtual, `Z = f·W/w`, rayo ∩ plano, ArUco + `solvePnP` (demo v1). | Hace coincidir las manos reales con la cancha virtual y mide la distancia de cada mano. Sin la `K` real, la distancia y la geometría salen mal. |
+| `core/calibracion.py` | Pinhole, captura guiada, `cv2.calibrateCamera` (Zhang), corrección de distorsión, cámara virtual, `Z = f·W/w`, rayo ∩ plano; ArUco + `solvePnP` de la v1 (ya no lo usa el juego). | Hace coincidir las manos reales con la cancha virtual y mide la distancia de cada mano. Sin la `K` real, la distancia y la geometría salen mal. |
 | `core/filtros.py` | Gaussiano, mediana, bilateral; Sobel y Canny; convolución manual vs. `filter2D`. | Limpia el ruido de la cámara antes de segmentar la piel. |
 | `core/histogramas.py` | Histogramas H-S y Cr-Cb, retroproyección, ecualización, CLAHE. | Un modelo de piel **por jugador** (tonos distintos) y compensación de la luz. |
 | `core/umbralizacion.py` | Rangos HSV/YCrCb, Otsu manual (curva σ²_B) vs. OpenCV, adaptativo, métricas. | Convierte la retroproyección de cada mitad en la máscara de la mano. |
@@ -421,9 +424,9 @@ Ninguna necesita la cámara: usan escenas sintéticas de verdad conocida.
   - cada mano solo en su mitad.
 - **Juego:** física, reglas para 2 jugadores, IA, render, partidas completas sin ventana en ambos modos y el juego del
   navegador con los manejadores de Gradio.
-- **Menús y web:** el menú de escritorio (inicio, ajustes, pausa, revancha, clic del mouse) y la página del juego
-  (botón de modo, stream de la cámara, botones de la partida); el laboratorio se construye y cada pestaña procesa
-  cada ejemplo.
+- **Menús, vistas y web:** el menú de escritorio (inicio, ajustes, pausa, revancha, clic del mouse); cada vista por
+  tema aparece en la partida y su ajuste cambia el pipeline; la página web (botón de modo, stream de la cámara,
+  botones, selector de temas y calibración guiada).
 
 ## Limitaciones
 
@@ -449,8 +452,8 @@ Ninguna necesita la cámara: usan escenas sintéticas de verdad conocida.
 voleyar/
   core/      calibracion, filtros, histogramas, umbralizacion, morfologia, segmentacion,
              caracterizacion, transformers_models, pipeline, config
-  juego/     fisica, ia_rival, partida, render_ar, asincrono, bucle, menus, navegador
-  ui/        app, juego_web (la página del juego), laboratorio, tema, estado, comunes, pestanas/ (una por tema)
+  juego/     fisica, ia_rival, partida, render_ar, asincrono, bucle, menus, vistas (un tema por vista), navegador
+  ui/        app, juego_web (la página del juego), calibracion_web, tema, estado, comunes
   utils/     camara, io, visualizacion, sinteticos
   entorno.py detección de Spaces/ZeroGPU
 config/      camara.json (lo crea la calibración)
@@ -458,9 +461,8 @@ scripts/     generar_imprimibles.py, calibrar_camara.py, desplegar_space.py
 despliegue/  requirements.txt y cabecera del README para el Space
 tests/       pruebas por módulo, modo pantalla, juego y UI
 docs/        arquitectura.md, guion_video.md, imprimibles/, capturas/
-app.py       el juego en el navegador (+ /laboratorio)
+app.py       el juego en el navegador
 jugar.py     el juego en una ventana
-laboratorio.py  solo el laboratorio
 ```
 
 ## Licencia
