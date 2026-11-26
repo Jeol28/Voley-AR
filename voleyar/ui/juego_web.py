@@ -38,7 +38,9 @@ ETIQUETAS = {"start": "Empezar", "stop": "Detener", "waiting": "Conectando…"}
 def _opciones_vista():
     from voleyar.juego.vistas import TITULOS, VISTAS
 
-    return [("Solo el juego" if v == "juego" else f"{i} · {TITULOS[v]}", v) for i, v in enumerate(VISTAS)]
+    from voleyar.juego.vistas import APODOS
+
+    return [("Solo el juego" if v == "juego" else f"{TITULOS[v]}: {APODOS[v]}", v) for v in VISTAS]
 
 
 OPCIONES_VISTA = _opciones_vista()
@@ -81,12 +83,18 @@ reales a qué distancia está cada mano y a qué velocidad la acercas, que es lo
 
 VER_TEMAS = """
 ### ¿Cómo te ve el juego?
-Cada tema de visión artificial decide algo de la partida, y **¿Qué quieres ver?** lo muestra en vivo:
-**calibración** (la distancia de tu mano y el remate), **filtros** (el ruido que no debe golpear), **histogramas** (los
-cambios de luz y el color de tu piel), **umbralización** (cuánto tiene que cambiar algo para moverse), **morfología**
-(limpiar lo que se mueve), **segmentación** (cada objeto, sin tu cara), **caracterización** (el tipo de golpe) y
-**transformers** (solo golpea lo que está cerca). Con **−** y **+** cambias el ajuste de ese tema y lo notas en el
-juego.
+Mientras juegas, **¿Qué quieres ver?** te muestra cómo te ve el juego. Cada tema hace algo:
+
+- **Calibración:** mide qué tan cerca está tu mano. ¡Acércala rápido para rematar!
+- **Filtros:** borra los puntitos que tiemblan en la cámara.
+- **Histogramas:** se da cuenta cuando alguien prende o apaga una luz.
+- **Umbralización:** decide qué se movió. Lo blanco se está moviendo.
+- **Morfología:** borra manchitas y junta los pedazos.
+- **Segmentación:** pinta de un color cada cosa que se mueve. Tu cara no cuenta.
+- **Caracterización:** mira la forma de lo que golpea para saber qué golpe fue.
+- **Transformers:** una inteligencia artificial ve qué está cerca. Lo de atrás no golpea.
+
+Con **−** y **+** cambias cómo funciona y lo notas al jugar.
 """
 
 CALIBRAR_INTRO = """
@@ -277,10 +285,10 @@ def _texto_param(juego, vista: str) -> str:
     from voleyar.juego.vistas import QUE_HACE, parametro_disponible, texto_parametro
 
     if vista == "juego" or juego is None:
-        return "Elige un tema en **¿Qué quieres ver?** y ajústalo con **− / +**."
+        return "Elige un tema en **¿Qué quieres ver?** para ver cómo funciona el juego por dentro."
     if not parametro_disponible(juego, vista):
         return f"{QUE_HACE[vista]}  \n**− / +:** {texto_parametro(juego, vista)}."
-    return f"{QUE_HACE[vista]}  \n**−/+ cambia** {texto_parametro(juego, vista)}"
+    return f"{QUE_HACE[vista]}  \n**Con − / + cambias:** {texto_parametro(juego, vista)}"
 
 
 def _controles_param(juego, vista: str):

@@ -245,8 +245,8 @@ def dibujar_hud(img: np.ndarray, marcador: tuple[int, int], mensaje: str = "", m
         ancho_m = int(len(mensaje) * tam * 0.55)
         vis.poner_texto(img, mensaje, (w // 2 - ancho_m // 2, h // 2 + int(h * 0.28)), tam + 2, vis.BGR_NARANJA,
                         negrita=True, fondo=vis.BGR_GRAFITO, alfa_fondo=0.75)
-    izq = modo + (f"   ·   {fps:.0f} FPS" if fps is not None else "") + f"   ·   detector {detector}"
-    vis.poner_texto(img, izq, (14, h - tam - 14), tam - 4, vis.BGR_NEUTRO, fondo=vis.BGR_GRAFITO)
+    if modo:  # solo un aviso sencillo (por ejemplo, que la cámara no está calibrada)
+        vis.poner_texto(img, modo, (14, h - tam - 14), tam - 4, vis.BGR_NEUTRO, fondo=vis.BGR_GRAFITO)
     if gesto:
         der = f"{gesto}" + (f" · {rapidez:.0f} cm/s" if rapidez is not None else "")
         x = w - int(len(der) * (tam - 4) * 0.6) - 60

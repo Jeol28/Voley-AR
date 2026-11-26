@@ -148,7 +148,7 @@ class Juego:
 
     # ------------------------------------------------------------ utilidades
     def _modo_texto(self) -> str:
-        return "con calibración" if self.config.usar_calibracion else "SIN calibración"
+        return "" if self.config.usar_calibracion and self.modelo_camara is not None else "cámara sin calibrar"
 
     def _tarea_profundidad(self, img):
         from voleyar.core import transformers_models as tm
@@ -558,10 +558,11 @@ class Juego:
             r, j = res.manos[lado], self.jugadores[lado]
             if not r.hay_mano:
                 texto = "golpea con la mano o con lo que quieras"
-            else:
-                z = f"{r.distancia_cm:.0f} cm" if r.distancia_cm else "—"
-                ref = "midiendo…" if j.z_ref is None else f"plano a {j.z_ref:.0f} cm"
-                texto = f"{r.gesto[0]} · {z} ({ref})"
+            else:  # el golpe que daría ahora su mano
+                from voleyar.core.caracterizacion import TIPOS_GOLPE, tipo_de_golpe
+
+                n = r.dedos_estables if r.dedos_estables is not None else r.analisis.n_dedos
+                texto = "tu golpe: " + TIPOS_GOLPE[j.tipo if j.tipo else tipo_de_golpe(int(n))].lower()
             x = 16 if lado < 0 else w // 2 + 16
             vis.poner_texto(img, texto, (x + 22, int(h * 0.12)), tam, vis.BGR_NEUTRO, fondo=vis.BGR_GRAFITO)
             color = vis.BGR_NEUTRO if j.valida is None else (vis.BGR_VERDE if j.valida else vis.BGR_ROJO)

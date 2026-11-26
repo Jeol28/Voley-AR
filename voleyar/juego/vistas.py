@@ -27,7 +27,7 @@ VISTAS = ("juego", "calibracion", "filtros", "histogramas", "umbralizacion", "mo
           "caracterizacion", "transformers")
 TITULOS = {
     "juego": "Juego",
-    "calibracion": "Calibración de la cámara",
+    "calibracion": "Calibración",
     "filtros": "Filtros",
     "histogramas": "Histogramas",
     "umbralizacion": "Umbralización",
@@ -36,15 +36,26 @@ TITULOS = {
     "caracterizacion": "Caracterización",
     "transformers": "Transformers",
 }
+# El nombre del tema de la clase y, al lado, lo que hace en palabras de juego
+APODOS = {
+    "calibracion": "¿qué tan cerca está tu mano?",
+    "filtros": "una imagen sin ruido",
+    "histogramas": "¿cambió la luz?",
+    "umbralizacion": "¿qué se movió?",
+    "morfologia": "limpiar manchitas",
+    "segmentacion": "cada cosa por separado",
+    "caracterizacion": "¿qué golpe fue?",
+    "transformers": "¿qué está cerca?",
+}
 QUE_HACE = {
-    "calibracion": "Con K se mide la distancia de la mano (Z = f·W/w): llevarla rápido hacia la cámara es un remate.",
-    "filtros": "El suavizado quita el ruido de la cámara para que no parezca algo que se mueve y golpee solo.",
-    "histogramas": "Si el histograma de la luz cambia de golpe es una lámpara, no un golpe: se reaprende el cuarto.",
-    "umbralizacion": "Otsu decide en cada frame cuánto tiene que cambiar un píxel para contar como movimiento.",
-    "morfologia": "Apertura quita el ruido suelto y cierre une el objeto que se mueve en una sola pieza.",
-    "segmentacion": "Cada cosa que se mueve es un objeto; la cara no cuenta, así la cabeza no golpea sin querer.",
-    "caracterizacion": "La forma de lo que golpea decide el golpe: puño fuerte, mano abierta suave, objeto grande bloqueo.",
-    "transformers": "Depth Anything dice qué está cerca: alguien que pasa por detrás no devuelve el balón.",
+    "calibracion": "El juego mide qué tan cerca está tu mano. ¡Acércala rápido a la cámara para hacer un remate!",
+    "filtros": "La cámara tiene puntitos que tiemblan. El juego los borra para que no golpeen el balón solos.",
+    "histogramas": "Si alguien prende o apaga una luz, el juego se da cuenta y no lo confunde con un golpe.",
+    "umbralizacion": "El juego decide qué cambió lo suficiente para contar como movimiento. Lo blanco se está moviendo.",
+    "morfologia": "El juego borra las manchitas sueltas y junta los pedazos de lo que se mueve.",
+    "segmentacion": "Cada cosa que se mueve sale de un color. Tu cara no cuenta: así no golpeas con la cabeza sin querer.",
+    "caracterizacion": "La forma decide el golpe: puño = golpe fuerte, mano abierta = toque suave, cuaderno = bloqueo.",
+    "transformers": "Una inteligencia artificial ve qué está cerca. Lo que pasa lejos, por detrás, no golpea el balón.",
 }
 
 
@@ -66,21 +77,35 @@ def _cfg(attr):
     return (lambda j: getattr(j.config, attr)), (lambda j, v: setattr(j.config, attr, v))
 
 
+def _nombres(*pares):
+    """Muestra cada valor técnico con una palabra sencilla."""
+    d = dict(pares)
+    return lambda v: d.get(v, str(v))
+
+
+_SI_NO = _nombres((True, "sí"), (False, "no"))
+
 PARAMETROS: dict[str, Parametro] = {
-    "calibracion": Parametro("usar la calibración", (True, False), lambda j: j.config.usar_calibracion,
-                             lambda j, v: j.accion("calibracion") if v != j.config.usar_calibracion else None,
-                             lambda v: "sí" if v else "no"),
-    "filtros": Parametro("suavizado", ("gaussiano", "mediana", "bilateral", "ninguno"), *_cfg("suavizado")),
-    "histogramas": Parametro("cambio de luz desde", (0.15, 0.2, 0.3, 0.45), *_cfg("umbral_luz"), lambda v: f"{v:.2f}"),
-    "umbralizacion": Parametro("umbral mínimo del movimiento", (8, 12, 18, 25, 35, 50), *_cfg("mov_t_min")),
-    "morfologia": Parametro("apertura del movimiento", (1, 3, 5, 7), *_cfg("mov_apertura"), lambda v: f"{v} px"),
-    "segmentacion": Parametro("la cara golpea", (False, True), lambda j: not j.config.ignorar_caras_golpe,
-                              lambda j, v: setattr(j.config, "ignorar_caras_golpe", not v),
-                              lambda v: "sí" if v else "no"),
-    "caracterizacion": Parametro("un dedo sale a más de k·r, k =", (1.4, 1.5, 1.6, 1.7, 1.8, 2.0), *_cfg("k_dedo"),
-                                 lambda v: f"{v:.1f}"),
-    "transformers": Parametro("cercanía mínima para golpear", (0.0, 0.05, 0.1, 0.2, 0.3), *_cfg("cercania_min"),
-                              lambda v: "no se filtra" if v <= 0 else f"{v:.2f}"),
+    "calibracion": Parametro("Usar la calibración", (True, False), lambda j: j.config.usar_calibracion,
+                             lambda j, v: j.accion("calibracion") if v != j.config.usar_calibracion else None, _SI_NO),
+    "filtros": Parametro("Limpiar la imagen", ("gaussiano", "mediana", "bilateral", "ninguno"), *_cfg("suavizado"),
+                         _nombres(("gaussiano", "suave"), ("mediana", "fuerte"), ("bilateral", "cuidando bordes"),
+                                  ("ninguno", "apagado"))),
+    "histogramas": Parametro("Atento a la luz", (0.15, 0.2, 0.3, 0.45), *_cfg("umbral_luz"),
+                             _nombres((0.15, "muchísimo"), (0.2, "mucho"), (0.3, "normal"), (0.45, "poco"))),
+    "umbralizacion": Parametro("Sensible al movimiento", (8, 12, 18, 25, 35, 50), *_cfg("mov_t_min"),
+                               _nombres((8, "al máximo"), (12, "mucho"), (18, "normal"), (25, "poco"),
+                                        (35, "muy poco"), (50, "casi nada"))),
+    "morfologia": Parametro("Borrar manchitas", (1, 3, 5, 7), *_cfg("mov_apertura"),
+                            _nombres((1, "no"), (3, "normal"), (5, "más"), (7, "muchísimo"))),
+    "segmentacion": Parametro("La cabeza golpea", (False, True), lambda j: not j.config.ignorar_caras_golpe,
+                              lambda j, v: setattr(j.config, "ignorar_caras_golpe", not v), _SI_NO),
+    "caracterizacion": Parametro("Contar dedos", (1.4, 1.5, 1.6, 1.7, 1.8, 2.0), *_cfg("k_dedo"),
+                                 _nombres((1.4, "muy fácil"), (1.5, "fácil"), (1.6, "normal"), (1.7, "exigente"),
+                                          (1.8, "muy exigente"), (2.0, "solo dedos bien abiertos"))),
+    "transformers": Parametro("Solo golpea lo cercano", (0.0, 0.05, 0.1, 0.2, 0.3), *_cfg("cercania_min"),
+                              _nombres((0.0, "apagado"), (0.05, "un poco"), (0.1, "normal"), (0.2, "más"),
+                                       (0.3, "muy cerca"))),
 }
 
 
@@ -107,7 +132,7 @@ def texto_parametro(juego, vista: str) -> str:
     if p is None:
         return ""
     if not parametro_disponible(juego, vista):
-        return "nada todavía: calibra la cámara desde el inicio (Calibrar cámara) para comparar con y sin calibración"
+        return "primero calibra la cámara desde el inicio (botón Calibrar cámara)"
     return f"{p.nombre}: {p.formato(p.leer(juego))}"
 
 
@@ -216,16 +241,15 @@ def _calibracion(juego, res, img):
         if r.distancia_cm and r.hay_mano:
             vz = juego.jugadores[lado].vz
             rapido = vz is not None and vz <= -juego.config.remate_vz
-            texto = f"{r.distancia_cm:.0f} cm" + (f" · {vz:+.0f} cm/s" if vz is not None else "")
-            _etiqueta_mano(out, r, texto + (" ¡remate!" if rapido else ""),
+            texto = f"a {r.distancia_cm:.0f} cm de la cámara"
+            _etiqueta_mano(out, r, "¡remate!" if rapido else texto,
                            vis.BGR_VERDE if rapido else vis.BGR_NARANJA)
-    lineas = [f"Remate: mano hacia la cámara a más de {juego.config.remate_vz:.0f} cm/s · remates en la partida: "
-              f"{juego.stats['remates']}"]
+    lineas = [f"Remates en esta partida: {juego.stats['remates']}"]
     if usando:
-        lineas.append(f"Blanco: rectas corregidas · naranja: cómo las curva tu lente (k1 = {modelo_cam.dist[0]:.3f}) · "
-                      f"f = {res.modelo.K[0, 0]:.0f} px")
+        lineas.append("Cámara calibrada: las líneas naranjas muestran cómo dobla la imagen tu cámara, y el juego "
+                      "la endereza")
     else:
-        lineas.append("Sin calibración: f aproximada = ancho de la imagen, así que Z y su velocidad salen mal "
+        lineas.append("Cámara sin calibrar: las distancias son aproximadas, y el remate puede fallar "
                       "(y el remate se dispara de más o de menos)")
     return out, lineas
 
@@ -239,13 +263,13 @@ def _filtros(juego, res, img):
         sueltos = cv2.bitwise_and(cruda, cv2.bitwise_not(limpia))
         out[limpia > 0] = vis.BGR_NEUTRO
         out[cv2.dilate(sueltos, np.ones((3, 3), np.uint8)) > 0] = vis.BGR_ROJO
-        lineas.append(f"Puntos de ruido que «se movieron»: {m.puntos_sueltos} (rojo) · con «ninguno» suben, y si "
+        lineas.append(f"Puntitos de ruido borrados: {m.puntos_sueltos} (en rojo). Si apagas la limpieza, aparecen más"
                       "crecen golpean el balón solos")
     else:
         lineas.append("Aprendiendo el fondo…")
     ruido = lambda im: float(np.std(cv2.Laplacian(cv2.cvtColor(im, cv2.COLOR_BGR2GRAY), cv2.CV_32F)))  # noqa: E731
-    lineas.append(f"Suavizado {juego.config.suavizado} {juego.config.k_suavizado}×{juego.config.k_suavizado}: ruido "
-                  f"(σ del laplaciano) {ruido(res.clahe):.1f} → {ruido(res.suavizada):.1f} · blanco: lo que sí se mueve")
+    lineas.append(f"Ruido de la cámara: {ruido(res.clahe):.0f} antes, {ruido(res.suavizada):.0f} después. En blanco, lo que "
+                  "de verdad se mueve")
     return out, lineas
 
 
@@ -256,24 +280,22 @@ def _histogramas(juego, res, img):
     lineas = []
     if m is not None and m.hist_luz is not None:
         g = _grafica([(m.hist_ref, (180, 180, 180)), (m.hist_luz, vis.BGR_NARANJA)], [], w // 3, h // 4,
-                     "luz: referencia (gris) y ahora (naranja)")
+                     "luz: antes (gris) y ahora (naranja)")
         _al_panel(juego, g)
-        cambio = " ¡cambio de luz!" if m.cambio_luz else ""
-        lineas.append(f"Bhattacharyya entre histogramas: {m.distancia_luz:.2f} (desde {juego.config.umbral_luz:.2f} es "
-                      f"la luz y se reaprende el cuarto) · cambios de luz: {juego.estado_pipe.movimiento.cambios_luz}"
-                      f"{cambio}")
+        estado = "¡Cambió la luz! El juego vuelve a mirar el cuarto" if m.cambio_luz else "La luz está estable"
+        lineas.append(f"{estado} · cambios de luz: {juego.estado_pipe.movimiento.cambios_luz}")
     lado_mini = h // 5
     piel_txt = []
     for lado in juego.lados:
         piel = juego.jugadores[lado].piel
         if piel is None:
-            piel_txt.append(f"{pl.NOMBRES_LADO[lado]}: piel por rango fijo YCrCb")
+            piel_txt.append(f"{pl.NOMBRES_LADO[lado]}: aún aprendiendo su color de piel")
             continue
         mapa = cv2.applyColorMap(vis.normalizar_u8(np.log1p(piel.hist_crcb)), cv2.COLORMAP_INFERNO)
         mapa = cv2.resize(mapa, (lado_mini, lado_mini), interpolation=cv2.INTER_NEAREST)
-        _al_panel(juego, mapa, f"piel Cr-Cb {pl.NOMBRES_LADO[lado]}")
-        piel_txt.append(f"{pl.NOMBRES_LADO[lado]}: piel aprendida sola ({juego.jugadores[lado].n_aprendizajes} veces)")
-    lineas.append(" · ".join(piel_txt) + " · la retroproyección de ese histograma busca la mano")
+        _al_panel(juego, mapa, f"color de piel {pl.NOMBRES_LADO[lado]}")
+        piel_txt.append(f"{pl.NOMBRES_LADO[lado]}: ya conoce su color de piel")
+    lineas.append(" · ".join(piel_txt))
     return out, lineas
 
 
@@ -289,14 +311,13 @@ def _umbralizacion(juego, res, img):
         hist = np.bincount(m.diferencia.ravel(), minlength=256).astype(float)
         hist[:3] = 0
         g = _grafica([(np.log1p(hist), (180, 180, 180)), (m.curva_otsu, vis.BGR_NARANJA)],
-                     [(m.T_otsu, vis.BGR_NARANJA), (m.T, vis.BGR_VERDE)], w // 3, h // 4, f"|frame − fondo|, T = {m.T}")
+                     [(m.T_otsu, vis.BGR_NARANJA), (m.T, vis.BGR_VERDE)], w // 3, h // 4, "cuánto cambió cada punto")
         _al_panel(juego, g)
-        lineas.append(f"Otsu sobre |frame − fondo| elige T = {m.T_otsu} → se usa {m.T} (mínimo "
-                      f"{juego.config.mov_t_min}) · blanco: lo que lo supera, se está moviendo")
+        lineas.append(f"Lo blanco se está moviendo. Para contar, algo tiene que cambiar al menos {m.T} "
+                      "(el juego elige ese número solo en cada momento)")
     else:
-        lineas.append("Aprendiendo el fondo…")
-    ts = [f"{pl.NOMBRES_LADO[l]} T = {r.T_otsu}" for l, r in res.manos.items() if r.T_otsu is not None]
-    lineas.append("Otsu también separa la piel de la mano: " + (" · ".join(ts) if ts else "aún sin histograma de piel"))
+        lineas.append("Mirando el cuarto… quédate quieto un segundo")
+    lineas.append("La línea verde de la gráfica es el punto donde el juego corta: a la derecha, movimiento")
     return out, lineas
 
 
@@ -304,7 +325,7 @@ def _morfologia(juego, res, img):
     out = _oscurecer(img, 0.45)
     m = res.mov
     if m is None or m.cruda is None:
-        return out, ["Aprendiendo el fondo…"]
+        return out, ["Mirando el cuarto… quédate quieto un segundo"]
     antes, despues = _grande(m.cruda, img), _grande(m.limpia, img)
     out[despues > 0] = vis.BGR_NEUTRO
     quitados = cv2.bitwise_and(antes, cv2.bitwise_not(despues))
@@ -313,11 +334,8 @@ def _morfologia(juego, res, img):
     out[rellenos > 0] = vis.BGR_VERDE
     n0 = cv2.connectedComponents(m.cruda)[0] - 1
     n1 = cv2.connectedComponents(m.limpia)[0] - 1
-    return out, [f"Rojo: ruido que quita la apertura ({m.px_quitados} px) · verde: lo que une el cierre · "
-                 f"regiones {n0} → {n1}: menos pedazos sueltos que puedan tocar el balón",
-                 f"Apertura {juego.config.mov_apertura} px · cierre {juego.config.mov_cierre} px (en la imagen de "
-                 f"320 px) · la máscara de la mano usa apertura {juego.config.tam_apertura} y cierre "
-                 f"{juego.config.tam_cierre}"]
+    return out, ["En rojo, las manchitas que se borran. En verde, los huecos que se rellenan",
+                 f"Pedazos que se movían: {n0} antes de limpiar, {n1} después"]
 
 
 def _segmentacion(juego, res, img):
@@ -336,12 +354,9 @@ def _segmentacion(juego, res, img):
         cv2.rectangle(out, (x, y), (x + cw, y + ch), vis.BGR_ROJO, 2)
     n = len(m.objetos) if m is not None else 0
     nc = len(m.descartados_cara) if m is not None else 0
-    cara = "no golpea" if juego.config.ignorar_caras_golpe else "SÍ golpea"
-    linea = f"{n} objeto(s) en movimiento (naranja; verde = el que toca el balón) · {nc} descartado(s) por ser la " \
-            f"cara (rojo): la cara {cara}"
-    t = [f"{pl.NOMBRES_LADO[l]} {c.fraccion * 100:.0f} % del balón" for l, c in toques.items()]
-    lineas = [linea, ("Sobre el balón: " + " · ".join(t) + " (desde 12 % lo devuelve)") if t else
-              f"Recuadros rojos: {len(res.caras)} cara(s) de Viola-Jones · el fondo lo modela MOG2"]
+    cara = "no golpea" if juego.config.ignorar_caras_golpe else "sí golpea"
+    linea = f"Cosas moviéndose: {n} · caras que no cuentan: {nc} (la cabeza {cara})"
+    lineas = [linea, "Naranja: cosas que se mueven · verde: la que toca el balón · rojo: tu cara"]
     return out, lineas
 
 
@@ -357,19 +372,19 @@ def _caracterizacion(juego, res, img):
         nombre = TIPOS_GOLPE.get(tipo, "—")
         vis.poner_texto(out, nombre, (x, max(0, y - 26)), max(13, img.shape[0] // 30), vis.BGR_VERDE,
                         fondo=vis.BGR_GRAFITO)
-        tipos.append(f"{pl.NOMBRES_LADO[lado]}: {nombre} (solidez {o.solidez:.2f})")
+        tipos.append(f"{pl.NOMBRES_LADO[lado]}: {nombre}")
     for lado, r in res.manos.items():
         v = r.validacion
         if r.descriptores is not None and v is not None and not v.valida:
             cv2.drawContours(out, [r.analisis.contorno], -1, vis.BGR_ROJO, 3, cv2.LINE_AA)
-            _etiqueta_mano(out, r, "no es una mano: " + v.motivos[0], vis.BGR_ROJO)
+            _etiqueta_mano(out, r, "esto no es una mano", vis.BGR_ROJO)
         elif r.hay_mano:
             n = r.dedos_estables if r.dedos_estables is not None else r.analisis.n_dedos
-            _etiqueta_mano(out, r, f"{n} dedos · {r.gesto[0]}")
-    hechos = ", ".join(f"{TIPOS_GOLPE[t]} {n}" for t, n in juego.stats["tipos"].items()) or "ninguno aún"
+            _etiqueta_mano(out, r, f"{n} dedos")
+    hechos = ", ".join(f"{TIPOS_GOLPE[t]} {n}" for t, n in juego.stats["tipos"].items()) or "todavía ninguno"
     lineas = [("Ahora: " + " · ".join(tipos)) if tipos else
-              "Puño = golpe fuerte · mano abierta = toque suave · objeto grande y compacto = bloqueo",
-              f"Golpes de la partida: {hechos} · verde: lo que toca el balón · contorno rojo: forma descartada"]
+              "Prueba con el puño, con la mano abierta o con un cuaderno",
+              f"Golpes de esta partida: {hechos}"]
     return out, lineas
 
 
@@ -380,14 +395,13 @@ def _transformers(juego, res, img):
     out = img
     lineas = []
     cmin = juego.config.cercania_min
-    filtro = "no se filtra" if cmin <= 0 else f"cercanía ≥ {cmin:.2f}"
-    lineas.append(f"Solo golpea lo que está cerca ({filtro}) · descartados por estar lejos: {juego.stats['lejos']}")
+    lineas.append(f"Cosas lejanas que no pudieron golpear: {juego.stats['lejos']}" +
+                  (" (el filtro está apagado)" if cmin <= 0 else ""))
     if prof is not None and prof.mapa.shape[:2] == img.shape[:2]:
         out = _mezclar(img, cv2.applyColorMap(vis.normalizar_u8(prof.mapa), cv2.COLORMAP_INFERNO), 0.7)
-        extra = f" · OWLv2: {len(owl.detecciones)} mano(s) en {owl.ms:.0f} ms" if owl is not None else ""
-        lineas.append(f"Depth Anything V2 ({prof.ms:.0f} ms, {prof.dispositivo}): claro = cerca de la cámara{extra}")
+        lineas.append("Colores claros = cerca de la cámara · oscuros = lejos")
     else:
-        lineas.append("Depth Anything V2: calculando…")
+        lineas.append("Calculando qué está cerca…")
     out = out.copy()
     for lado, c in _toques(juego).items():
         j = juego.jugadores[lado]
@@ -396,7 +410,7 @@ def _transformers(juego, res, img):
         x, y, _, _ = c.objeto.caja
         cerca = not j.lejos
         cv2.drawContours(out, [c.objeto.contorno], -1, vis.BGR_VERDE if cerca else vis.BGR_ROJO, 2, cv2.LINE_AA)
-        vis.poner_texto(out, f"{'cerca' if cerca else 'lejos'} {j.cercania:+.2f}", (x, max(0, y - 26)),
+        vis.poner_texto(out, "cerca" if cerca else "lejos: no cuenta", (x, max(0, y - 26)),
                         max(13, img.shape[0] // 30), vis.BGR_VERDE if cerca else vis.BGR_ROJO, fondo=vis.BGR_GRAFITO)
     if owl is not None:
         for d in owl.detecciones:
@@ -429,11 +443,11 @@ def panel(juego, vista: str, lineas: list[str], ancho: int, alto: int) -> np.nda
     t = max(12, min(22, ancho // 46))
     parametro = texto_parametro(juego, vista)
     if parametro and not parametro_disponible(juego, vista):
-        pista = "Sin calibración de la cámara: calíbrala desde el inicio para compararla"
+        pista = "Calibra la cámara desde el inicio para poder cambiar esto"
     else:
-        pista = (("[ ]" if juego.op.interfaz != "web" else "− / +") + f" cambia {parametro}") if parametro else ""
+        pista = (("Teclas [ ]" if juego.op.interfaz != "web" else "Botones − / +") + f": {parametro}") if parametro else ""
     cabe = max(24, int((ancho - 24) / (t * 0.52)))
-    bloques = [(f"{VISTAS.index(vista)} · {TITULOS[vista]} — {QUE_HACE[vista]}", vis.BGR_NARANJA, True),
+    bloques = [(f"{TITULOS[vista]}: {APODOS[vista]}", vis.BGR_NARANJA, True), (QUE_HACE[vista], vis.BGR_NEUTRO, False),
                *[(x, vis.BGR_NEUTRO, False) for x in lineas[:2]],
                *([(pista, (180, 182, 196), False)] if pista else [])]
     y = int(t * 0.5)

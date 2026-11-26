@@ -177,7 +177,7 @@ class Partida:
             return []
         self._t_ultimo_golpe[quien] = self.t
         if e.valida is False:
-            self.marcas.append(MarcaGolpe(self.balon.pos.copy(), False, self.t, "mano fuera del plano"))
+            self.marcas.append(MarcaGolpe(self.balon.pos.copy(), False, self.t, "muy cerca o muy lejos"))
             return ["golpe_invalido"]
         self.balon.pos[1] = 0.0
         self.balon.pos[2] = max(self.balon.pos[2], self.p.radio + 0.5)
