@@ -384,7 +384,9 @@ class Juego:
         # --- partida y render ---------------------------------------------------------------
         if not self.pausado:
             n_marcas = len(self.partida.marcas)
-            ev = self.partida.actualizar(dt, entradas.get(-1), entradas.get(1))
+            # Con la fuente sintética el tiempo de la partida avanza fijo (1/30 s por frame): así las pruebas dan
+            # lo mismo aunque el computador esté ocupado. Con la cámara se usa el tiempo real.
+            ev = self.partida.actualizar(1 / 30 if self.sintetico else dt, entradas.get(-1), entradas.get(1))
             self.eventos_totales += ev
             if len(self.partida.marcas) > n_marcas and getattr(self.partida, "ultimo_tipo", None) \
                     and self.partida.marcas[-1].valido:

@@ -208,13 +208,14 @@ sube al Space con hardware `zero-a10g`. Diferencias de la versión en línea:
 
 Se usó un flujo tipo *Git Flow* simplificado:
 
-- **`main`**: versiones estables y entregables (tags `v1.0.0`, `v1.1.0`, `v2.0.0`, `v2.1.0` y `v2.2.0`). Solo recibe merges desde `develop`.
+- **`main`**: versiones estables y entregables (tags `v1.0.0`, `v1.1.0`, `v2.0.0`, `v2.1.0`, `v2.2.0`, `v2.4.0` y `v2.5.0`). Solo recibe merges desde `develop`.
 - **`develop`**: rama de integración. Cada tema entra cuando sus pruebas pasan.
 - **`feature/<tema>`**: una rama por módulo. Para la v1: `feature/calibracion`, `feature/filtros`,
   `feature/histogramas`, `feature/umbralizacion`, `feature/morfologia`, `feature/segmentacion`,
   `feature/caracterizacion`, `feature/transformers`, `feature/juego`, `feature/ui` y `feature/docs`. Después vinieron
-  `feature/despliegue` (v1.1.0), `feature/multijugador` (v2.0.0), `feature/interfaz-juego` (v2.1.0) y
-  `feature/vistas-en-juego` (v2.2.0). Cada rama sale de `develop`, se trabaja con commits
+  `feature/despliegue` (v1.1.0), `feature/multijugador` (v2.0.0), `feature/interfaz-juego` (v2.1.0),
+  `feature/vistas-en-juego` (v2.2.0), `feature/turn-cloudflare` y `feature/deteccion-robusta` (v2.4.0) y
+  `feature/golpe-por-movimiento` (v2.5.0: golpe con cualquier objeto, cada tema decide algo de la partida y gestos). Cada rama sale de `develop`, se trabaja con commits
   pequeños ([Conventional Commits](https://www.conventionalcommits.org/es/)) y vuelve con `git merge --no-ff`.
 
 ```mermaid
@@ -298,6 +299,27 @@ gitGraph
     merge feature/vistas-en-juego
     checkout main
     merge develop tag: "v2.2.0"
+    checkout develop
+    branch feature/turn-cloudflare
+    commit id: "feat: lentes en la escena y espejo"
+    checkout develop
+    merge feature/turn-cloudflare
+    branch feature/deteccion-robusta
+    commit id: "feat: presencia fiable de la mano"
+    checkout develop
+    merge feature/deteccion-robusta
+    checkout main
+    merge develop tag: "v2.4.0"
+    checkout develop
+    branch feature/golpe-por-movimiento
+    commit id: "feat: golpe con cualquier objeto"
+    commit id: "feat: cada tema decide algo"
+    commit id: "feat: gestos y color del balón"
+    commit id: "fix: mano con reloj (fotos reales)"
+    checkout develop
+    merge feature/golpe-por-movimiento
+    checkout main
+    merge develop tag: "v2.5.0"
 ```
 
 ## Arquitectura
