@@ -57,7 +57,7 @@ Preparación antes de grabar:
 | 4:15 | 4 · Umbralización | |frame − fondo| en colores, la curva de Otsu y el T que se usa. | Subir el mínimo hasta que un objeto oscuro deje de golpear. | `core/umbralizacion.py` → `otsu_manual` |
 | 4:45 | 5 · Morfología | La zona de golpe (naranja) alrededor de la mano: es una dilatación; en rojo, el ruido que borra la apertura. | Zona "gigante": pasar la mano cerca del balón, sin tocarlo, y verlo volver. | `core/morfologia.py` → `apertura`, `cierre`; `cv2.dilate` en `core/movimiento.py` |
 | 5:20 | 6 · Segmentación | Cada objeto en movimiento; mover la cabeza: sale en rojo y no golpea. | "La cara golpea: sí" y cabecear el balón. | `core/movimiento.py`; `core/segmentacion.py` → `detectar_caras` |
-| 6:00 | 7 · Caracterización | Puño = golpe fuerte, mano abierta = toque suave, un cuaderno = bloqueo; el nombre aparece en el golpe. | Cambiar k del umbral de los dedos. | `core/caracterizacion.py` → `analizar_mano`, `tipo_de_golpe` |
+| 6:00 | 7 · Caracterización | Sacar con la mano abierta, pausar con la L, cambiar de tema con ✌ (el anillo se llena); luego puño = golpe fuerte y un cuaderno = bloqueo. | Cambiar k del umbral de los dedos. | `juego/gestos.py` → `clasificar`, `LectorGestos`; `core/caracterizacion.py` → `analizar_mano` |
 | 6:40 | 8 · Transformers | Mapa de profundidad; alguien pasa por detrás y su contorno sale en rojo "lejos". | Cercanía 0: ahora el que pasa por detrás devuelve el balón. | `core/movimiento.py` → `cercania`; `core/transformers_models.py` |
 
 > "Nada de esto es una demo aparte: cada tema decide algo de la partida, y esto es exactamente lo que el juego está

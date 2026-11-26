@@ -44,7 +44,7 @@ APODOS = {  # cortos: tienen que caber en el menú
     "umbralizacion": "¿qué se movió?",
     "morfologia": "zona de golpe",
     "segmentacion": "cada cosa",
-    "caracterizacion": "¿qué golpe?",
+    "caracterizacion": "tus gestos",
     "transformers": "cerca o lejos",
 }
 QUE_HACE = {
@@ -54,7 +54,7 @@ QUE_HACE = {
     "umbralizacion": "El juego decide qué cambió lo suficiente para contar como movimiento. Lo blanco se está moviendo.",
     "morfologia": "El juego agranda lo que se mueve: con una zona de golpe más grande es más fácil alcanzar el balón.",
     "segmentacion": "Cada cosa que se mueve sale de un color. Tu cara no cuenta: así no golpeas con la cabeza sin querer.",
-    "caracterizacion": "La forma decide el golpe: puño = golpe fuerte, mano abierta = toque suave, cuaderno = bloqueo.",
+    "caracterizacion": "El juego cuenta tus dedos: con gestos sacas, pausas o pides revancha. La forma también decide el golpe.",
     "transformers": "Una inteligencia artificial ve qué está cerca. Lo que pasa lejos, por detrás, no golpea el balón.",
 }
 
@@ -404,12 +404,15 @@ def _caracterizacion(juego, res, img):
             cv2.drawContours(out, [r.analisis.contorno], -1, vis.BGR_ROJO, 3, cv2.LINE_AA)
             _etiqueta_mano(out, r, "esto no es una mano", vis.BGR_ROJO)
         elif r.hay_mano:
+            from voleyar.juego.gestos import NOMBRES, clasificar
+
             n = r.dedos_estables if r.dedos_estables is not None else r.analisis.n_dedos
-            _etiqueta_mano(out, r, f"{n} dedos")
+            g = clasificar(r.analisis, n)
+            _etiqueta_mano(out, r, f"{n} dedos" + (f" · {NOMBRES[g].lower()}" if g else ""))
     hechos = ", ".join(f"{TIPOS_GOLPE[t]} {n}" for t, n in juego.stats["tipos"].items()) or "todavía ninguno"
-    lineas = [("Ahora: " + " · ".join(tipos)) if tipos else
-              "Prueba con el puño, con la mano abierta o con un cuaderno",
-              f"Golpes de esta partida: {hechos}"]
+    lineas = ["Gestos con la mano quieta: abierta = sacar · L con pulgar e índice = pausa · un dedo arriba = "
+              "revancha · dos dedos = cambiar tema",
+              (("Golpe ahora: " + " · ".join(tipos)) if tipos else f"Golpes de esta partida: {hechos}")]
     return out, lineas
 
 

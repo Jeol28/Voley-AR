@@ -71,6 +71,16 @@ COMO_SE_JUEGA = """
 
 La cara no golpea, y lo que pasa lejos, por detrás, tampoco.
 
+### Gestos (mano quieta un segundo)
+| Gesto | Qué hace |
+|---|---|
+| ✋ Mano abierta | **Sacar** |
+| 👆 Pulgar e índice, como una L | **Pausa** y seguir |
+| 👍 Un dedo hacia arriba | **Revancha** al terminar |
+| ✌ Dos dedos juntos | **Cambiar** lo que ves |
+
+Alrededor de tu mano aparece un círculo que se va llenando: cuando se completa, el gesto funciona.
+
 ### Reglas
 - Cada lado devuelve el balón con **un toque** y se permite **un bote**.
 - **No crucen la red**: cada jugador golpea el balón en su mitad de la imagen.
@@ -91,7 +101,7 @@ Mientras juegas, **¿Qué quieres ver?** te muestra cómo te ve el juego. Cada t
 - **Umbralización:** decide qué se movió. Lo blanco se está moviendo.
 - **Morfología:** agranda tu zona de golpe. ¡Más grande es más fácil!
 - **Segmentación:** pinta de un color cada cosa que se mueve. Tu cara no cuenta.
-- **Caracterización:** mira la forma de lo que golpea para saber qué golpe fue.
+- **Caracterización:** cuenta tus dedos: con gestos sacas, pausas o pides revancha. Y la forma decide el golpe.
 - **Transformers:** una inteligencia artificial ve qué está cerca. Lo de atrás no golpea.
 
 Con **−** y **+** cambias cómo funciona y lo notas al jugar.
@@ -326,8 +336,12 @@ def datos_tema(clave: str):
     s = sesiones.obtener(clave)
     with s.cerrojo:
         j = s.juego
+        menu = gr.update()
+        if j is not None and j.vista_por_gesto:  # cambió de tema con ✌: el menú lo sigue
+            j.vista_por_gesto = False
+            menu = gr.update(value=j.vista)
         if j is None or j.vista == "juego":
-            return gr.update(value="", visible=False), gr.update(value=None, visible=False)
+            return gr.update(value="", visible=False), gr.update(value=None, visible=False), menu
         texto = "  \n".join(j.lineas_tema[:2])
         graficas = list(getattr(j, "graficas_tema", []))
     img = None
@@ -336,7 +350,7 @@ def datos_tema(clave: str):
         partes = [cv2.resize(g, (max(1, int(g.shape[1] * alto / g.shape[0])), alto)) for g in graficas]
         img = vis.bgr_a_rgb(np.hstack(partes))
     return (gr.update(value=texto, visible=bool(texto)),
-            gr.update(value=img, visible=img is not None))
+            gr.update(value=img, visible=img is not None), menu)
 
 
 def guardar_ajustes(clave: str, dificultad: str, puntos: int, usar_cal: bool, espejo: bool = True) -> None:
@@ -531,7 +545,7 @@ def construir(demo: gr.Blocks) -> None:
     vista.change(elegir_vista, [clave, vista], [param, b_menos, b_mas])
     b_menos.click(cambiar(-1), [clave, vista], [param, b_menos, b_mas])
     b_mas.click(cambiar(1), [clave, vista], [param, b_menos, b_mas])
-    reloj_tema.tick(datos_tema, clave, [datos, graficas], show_progress="hidden")
+    reloj_tema.tick(datos_tema, clave, [datos, graficas, vista], show_progress="hidden")
 
     video_cal.stream(VideoStreamHandler(frame_calibracion, fps=15, skip_frames=True), inputs=[video_cal, clave],
                      outputs=[video_cal], concurrency_limit=CONCURRENCIA_VIDEO, send_input_on="submit")

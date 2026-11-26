@@ -112,8 +112,8 @@ class Partida:
         x = -7.0 if self.sacador == JUGADOR else 7.0
         self.balon = Balon(np.array([x, 0.0, 7.0]), np.zeros(3))
         if self.humano(self.sacador):
-            self.mensaje = ("Tu saque: golpea el balón" if self.modo == "ia"
-                            else f"Saca {self.nombres[self.sacador]}: golpea el balón")
+            self.mensaje = ("Tu saque: golpea el balón o abre la mano" if self.modo == "ia"
+                            else f"Saca {self.nombres[self.sacador]}: golpea el balón o abre la mano")
         else:
             self.mensaje = "Saca la IA…"
 
@@ -170,6 +170,12 @@ class Partida:
         vel = velocidad_para_objetivo(self.balon.pos, np.array([x_obj, 0.0]), apice, self.p)
         vel[1] = 0.0
         return vel
+
+    def sacar(self, quien: str) -> list[str]:
+        """Saque con un gesto (mano abierta): como si golpeara el balón, si le toca sacar a ``quien``."""
+        if self.estado != "saque" or self.sacador != quien or not self.humano(quien):
+            return []
+        return self._intentar_golpe(EntradaJugador(fuerza=0.8, gesto="saque", toca=True, tipo="golpe"), quien)
 
     def _intentar_golpe(self, e: EntradaJugador | None, quien: str) -> list[str]:
         if e is None or self.ultimo_toque == quien:

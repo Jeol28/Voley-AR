@@ -138,6 +138,12 @@ class Juego:
         self._t_prev = time.perf_counter()
         self.eventos_totales: list[str] = []
         self.dt_frame = 1 / 30  # tiempo entre los dos últimos frames procesados
+        # Caracterización: gestos de la mano para sacar, pausar, pedir revancha y cambiar de tema
+        from voleyar.juego.gestos import LectorGestos
+
+        self.gestos = LectorGestos()
+        self.progreso_gestos: dict = {}
+        self.vista_por_gesto = False  # la web sincroniza su menú "¿Qué quieres ver?" cuando cambia por gesto
         # Histogramas: el balón se pinta del color que menos hay en el cuarto ("auto") o del que se elija
         self.color_modo = "auto"
         self.color_balon = "naranja"
@@ -308,7 +314,7 @@ class Juego:
             return dibujar_menu(img, self.partida.mensaje, self.botones, marcador, oscuro=0.5)
         if self.pausado:
             if self.op.interfaz == "web":
-                return dibujar_cartel(img, "Pausa", "Pulsa Seguir para continuar")
+                return dibujar_cartel(img, "Pausa", "Haz una L con pulgar e índice, o pulsa Seguir")
             return dibujar_menu(img, "Pausa", self.botones, oscuro=0.5)
         return img
 
@@ -372,6 +378,7 @@ class Juego:
             self.stats["cara"] += 1  # frames en los que la cara se movió y no se contó
         if self.usar_owl:
             entradas = self._entradas_owl(res, entradas)
+        self._gestos(res, ahora)
         self._aprender_piel(res)
 
         # --- partida y render ---------------------------------------------------------------
@@ -410,6 +417,7 @@ class Juego:
             if franja is not None:
                 img = np.vstack([img, franja])
         img = self._dibujar_menu(img)
+        self._dibujar_gestos(img)  # encima de todo, también en la pausa (para poder seguir con un gesto)
         return img
 
     def _modelos(self, res: pl.ResultadoFrame, ahora: float):
@@ -448,6 +456,45 @@ class Juego:
         if self.owl is not None and self.owl.resultado is not None:
             self.ultimo_owl = self.owl.resultado
         return mapa
+
+    def _gestos(self, res: pl.ResultadoFrame, ahora: float) -> None:
+        """Caracterización en juego: cada mano quieta un segundo con un gesto controla la partida."""
+        p = self.partida
+        self.progreso_gestos = {}
+        for lado in self.lados:
+            permitidos = {"dos_dedos"}
+            if p.estado == "fin":
+                permitidos.add("dedo_arriba")
+            else:
+                permitidos.add("pulgar_indice")
+                if p.estado == "saque" and p.sacador == QUIEN[lado] and p.humano(QUIEN[lado]) and not self.pausado:
+                    permitidos.add("abierta")
+            gesto, prog = self.gestos.actualizar(lado, res.manos[lado], ahora, permitidos)
+            if prog is not None:
+                self.progreso_gestos[lado] = prog
+            if gesto == "abierta":
+                self.eventos_totales += p.sacar(QUIEN[lado])
+            elif gesto == "pulgar_indice":
+                self.accion("pausa")
+            elif gesto == "dedo_arriba":
+                self.accion("revancha")
+            elif gesto == "dos_dedos":
+                self.accion("vista_sig")
+                self.vista_por_gesto = True
+
+    def _dibujar_gestos(self, img: np.ndarray) -> None:
+        """Un anillo que se va llenando alrededor de la mano mientras se sostiene un gesto."""
+        from voleyar.juego.gestos import NOMBRES
+
+        t = max(14, img.shape[0] // 32)
+        for prog in self.progreso_gestos.values():
+            c = (int(prog.centro[0]), int(prog.centro[1]))
+            r = int(max(prog.radio * 1.6, 24))
+            cv2.circle(img, c, r, vis.BGR_GRAFITO, 6, cv2.LINE_AA)
+            cv2.ellipse(img, c, (r, r), -90, 0, 360 * prog.fraccion, vis.BGR_NARANJA, 6, cv2.LINE_AA)
+            texto = NOMBRES[prog.gesto] + ("!" if prog.fraccion >= 1 else "…")
+            vis.poner_texto(img, texto, (c[0] - r, max(0, c[1] - r - t - 10)), t, vis.BGR_NEUTRO, negrita=True,
+                            fondo=vis.BGR_GRAFITO)
 
     def _elegir_color_balon(self, res: pl.ResultadoFrame, ahora: float) -> None:
         """Histogramas en juego: el balón toma el color que menos aparece en el cuarto, para verse siempre.
