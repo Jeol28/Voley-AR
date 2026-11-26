@@ -43,3 +43,31 @@ def test_calibracion_simulada_desde_la_ui():
     _, gestor, _ = calibracion.simular_capturas(12)
     res, md, graf, comp, js = calibracion.calibrar(gestor, 2.5)
     assert res.modelo.error_rms < 0.5 and "fx" not in js
+
+
+def test_juego_del_navegador_con_los_manejadores_de_gradio():
+    """Simula el stream de la cámara y los botones: el estado (sesión y juego) pasa de llamada en llamada."""
+    import time
+
+    from voleyar.ui.estado import con_sesion
+    from voleyar.ui.pestanas import jugar
+    from voleyar.utils import sinteticos as s
+    from voleyar.utils import visualizacion as vis
+
+    modelo = s.camara_ejemplo(640, 360)
+    fuente = s.FuenteSintetica(modelo)
+    frame = con_sesion(jugar.jugar_frame)
+    espacio = con_sesion(jugar.tecla(" "))
+    sesion, juego = None, None
+    sesion, img, juego = frame(sesion, vis.bgr_a_rgb(fuente.leer()[1]), juego)
+    sesion.modelo_camara = modelo  # como si hubiera calibrado en la pestaña Calibración
+    sesion, juego = espacio(sesion, juego)
+    juego.t_cuenta = time.perf_counter()
+    fuente.mano.pos = (-6.0, 0.0)
+    for _ in range(120):
+        b = juego.partida.balon.pos
+        if b[0] < 0:
+            fuente.mano.pos = (float(b[0]) - 1.0, float(b[1]))
+        sesion, img, juego = frame(sesion, vis.bgr_a_rgb(fuente.leer()[1]), juego)
+    assert juego.fase == "jugando" and juego.config.usar_calibracion
+    assert img.shape == (360, 640, 3) and "golpe" in juego.eventos_totales
