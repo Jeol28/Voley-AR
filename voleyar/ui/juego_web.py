@@ -87,7 +87,7 @@ Mientras juegas, **¿Qué quieres ver?** te muestra cómo te ve el juego. Cada t
 
 - **Calibración:** mide qué tan cerca está tu mano. ¡Acércala rápido para rematar!
 - **Filtros:** sigue puntitos de tu mano para saber qué tan rápido va. ¡Golpea rápido y sale más fuerte!
-- **Histogramas:** se da cuenta cuando alguien prende o apaga una luz.
+- **Histogramas:** mira los colores de tu cuarto y pinta el balón del que más resalta.
 - **Umbralización:** decide qué se movió. Lo blanco se está moviendo.
 - **Morfología:** agranda tu zona de golpe. ¡Más grande es más fácil!
 - **Segmentación:** pinta de un color cada cosa que se mueve. Tu cara no cuenta.

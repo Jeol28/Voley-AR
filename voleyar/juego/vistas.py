@@ -40,7 +40,7 @@ TITULOS = {
 APODOS = {  # cortos: tienen que caber en el menú
     "calibracion": "tu distancia",
     "filtros": "velocidad",
-    "histogramas": "la luz",
+    "histogramas": "color del balón",
     "umbralizacion": "¿qué se movió?",
     "morfologia": "zona de golpe",
     "segmentacion": "cada cosa",
@@ -50,7 +50,7 @@ APODOS = {  # cortos: tienen que caber en el menú
 QUE_HACE = {
     "calibracion": "El juego mide qué tan cerca está tu mano. ¡Acércala rápido a la cámara para hacer un remate!",
     "filtros": "El juego sigue puntitos de tu mano para saber qué tan rápido va. ¡Golpea rápido y el balón sale más fuerte!",
-    "histogramas": "Si alguien prende o apaga una luz, el juego se da cuenta y no lo confunde con un golpe.",
+    "histogramas": "El juego mira qué colores hay en tu cuarto y pinta el balón del que más resalta. ¡Así siempre lo ves!",
     "umbralizacion": "El juego decide qué cambió lo suficiente para contar como movimiento. Lo blanco se está moviendo.",
     "morfologia": "El juego agranda lo que se mueve: con una zona de golpe más grande es más fácil alcanzar el balón.",
     "segmentacion": "Cada cosa que se mueve sale de un color. Tu cara no cuenta: así no golpeas con la cabeza sin querer.",
@@ -90,8 +90,9 @@ PARAMETROS: dict[str, Parametro] = {
                              lambda j, v: j.accion("calibracion") if v != j.config.usar_calibracion else None, _SI_NO),
     "filtros": Parametro("Fuerza por velocidad", (1.0, 2.0, 0.0), *_cfg("potencia_velocidad"),
                          _nombres((0.0, "apagada"), (1.0, "normal"), (2.0, "turbo"))),
-    "histogramas": Parametro("Atento a la luz", (0.15, 0.2, 0.3, 0.45), *_cfg("umbral_luz"),
-                             _nombres((0.15, "muchísimo"), (0.2, "mucho"), (0.3, "normal"), (0.45, "poco"))),
+    "histogramas": Parametro("Color del balón", ("auto", "naranja", "amarillo", "cian", "azul", "morado", "rosa"),
+                             lambda j: j.color_modo, lambda j, v: setattr(j, "color_modo", v),
+                             lambda v: "automático" if v == "auto" else v),
     "umbralizacion": Parametro("Sensible al movimiento", (8, 12, 18, 25, 35, 50), *_cfg("mov_t_min"),
                                _nombres((8, "al máximo"), (12, "mucho"), (18, "normal"), (25, "poco"),
                                         (35, "muy poco"), (50, "casi nada"))),
@@ -275,29 +276,50 @@ def _filtros(juego, res, img):
     return out, lineas
 
 
+def _barras_tono(hist: np.ndarray, elegido: str, ancho: int = 360, alto: int = 120) -> np.ndarray:
+    """Histograma de tonos dibujado con su propio color, y una flecha en el color del balón."""
+    from voleyar.core.histogramas import COLORES_BALON
+
+    g = np.full((alto, ancho, 3), (40, 32, 28), np.uint8)
+    base = alto - 22
+    tope = max(float(np.sqrt(hist).max()), 1e-6)
+    paso = ancho / 180
+    for t in range(180):
+        hb = int((np.sqrt(hist[t]) / tope) * (base - 18))
+        color = cv2.cvtColor(np.uint8([[[t, 230, 255]]]), cv2.COLOR_HSV2BGR)[0, 0].tolist()
+        cv2.rectangle(g, (int(t * paso), base - hb), (int((t + 1) * paso), base), color, -1)
+    for nombre, (t, bgr) in COLORES_BALON.items():
+        x = int((t + 0.5) * paso)
+        if nombre == elegido:
+            cv2.fillPoly(g, [np.array([[x, base + 2], [x - 8, alto - 2], [x + 8, alto - 2]])], vis.BGR_NEUTRO)
+        else:
+            cv2.circle(g, (x, base + 10), 4, bgr, -1, cv2.LINE_AA)
+    vis.poner_texto(g, "colores de tu cuarto", (6, 1), 13, vis.BGR_NEUTRO)
+    return g
+
+
 def _histogramas(juego, res, img):
-    out = _oscurecer(img, 0.35)
-    h, w = out.shape[:2]
-    m = res.mov
+    from voleyar.core import histogramas as his
+
+    nombre = juego.color_balon
     lineas = []
-    if m is not None and m.hist_luz is not None:
-        g = _grafica([(m.hist_ref, (180, 180, 180)), (m.hist_luz, vis.BGR_NARANJA)], [], w // 3, h // 4,
-                     "luz: antes (gris) y ahora (naranja)")
-        _al_panel(juego, g)
-        estado = "¡Cambió la luz! El juego vuelve a mirar el cuarto" if m.cambio_luz else "La luz está estable"
-        lineas.append(f"{estado} · cambios de luz: {juego.estado_pipe.movimiento.cambios_luz}")
-    lado_mini = h // 5
-    piel_txt = []
-    for lado in juego.lados:
-        piel = juego.jugadores[lado].piel
-        if piel is None:
-            piel_txt.append(f"{pl.NOMBRES_LADO[lado]}: aún aprendiendo su color de piel")
-            continue
-        mapa = cv2.applyColorMap(vis.normalizar_u8(np.log1p(piel.hist_crcb)), cv2.COLORMAP_INFERNO)
-        mapa = cv2.resize(mapa, (lado_mini, lado_mini), interpolation=cv2.INTER_NEAREST)
-        _al_panel(juego, mapa, f"color de piel {pl.NOMBRES_LADO[lado]}")
-        piel_txt.append(f"{pl.NOMBRES_LADO[lado]}: ya conoce su color de piel")
-    lineas.append(" · ".join(piel_txt))
+    out = _oscurecer(img, 0.55)
+    if juego.hist_tono is not None:
+        # En blanco, lo del cuarto que se parece al color del balón (lo que le "compite")
+        tono, _ = his.COLORES_BALON[nombre]
+        hsv = cv2.cvtColor(res.imagen, cv2.COLOR_BGR2HSV)
+        d = np.abs(hsv[..., 0].astype(int) - tono)
+        parecido = (np.minimum(d, 180 - d) <= 12) & (hsv[..., 1] >= 60) & (hsv[..., 2] >= 50)
+        out[parecido] = vis.BGR_NEUTRO
+        _al_panel(juego, _barras_tono(juego.hist_tono, nombre))
+        if juego.color_modo == "auto":
+            lineas.append(f"El balón es {nombre.upper()} porque es el color que menos hay en tu cuarto")
+        else:
+            lineas.append(f"Elegiste el balón {nombre}. En blanco: lo que tiene un color parecido")
+    m = res.mov
+    luz = ("¡Cambió la luz! El juego vuelve a mirar el cuarto" if m is not None and m.cambio_luz
+           else "La luz está estable")
+    lineas.append(f"{luz} · cambios de luz: {juego.estado_pipe.movimiento.cambios_luz}")
     return out, lineas
 
 

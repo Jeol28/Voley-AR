@@ -327,3 +327,49 @@ def test_mano_delante_de_la_cara_con_un_mapa_de_otro_tamano():
     mano[int(200 * e):int(300 * e), int(100 * e):int(200 * e)] = 255
     r = tm.mano_delante_de_la_cara(mapa, mano, (int(120 * e), 10, 60, 60))
     assert r is not None and r.delante
+
+
+# ------------------------------------------------------------------------- histogramas: color del balón
+def _cuarto_de_color(bgr):
+    img = np.zeros((H, W, 3), np.uint8)
+    img[:] = bgr
+    return cv2.add(img, np.random.default_rng(0).integers(0, 20, (H, W, 3), dtype=np.uint8))
+
+
+@pytest.mark.parametrize("pared,no_puede", [((40, 110, 230), "naranja"),  # pared naranja
+                                            ((200, 110, 30), "azul"),  # pared azul
+                                            ((30, 200, 230), "amarillo")])  # pared amarilla
+def test_el_balon_toma_el_color_que_menos_hay_en_el_cuarto(pared, no_puede):
+    from voleyar.core import histogramas as his
+
+    img = _cuarto_de_color((120, 120, 120))
+    img[:, : W * 2 // 3] = _cuarto_de_color(pared)[:, : W * 2 // 3]  # dos tercios del cuarto de ese color
+    hist = his.histograma_tono(img)
+    elegido, masas = his.color_de_contraste(hist)
+    assert elegido != no_puede and masas[no_puede] > 0.3 and masas[elegido] < 0.01
+
+
+def test_un_cuarto_gris_no_compite_con_ningun_color():
+    from voleyar.core import histogramas as his
+
+    hist = his.histograma_tono(_cuarto_de_color((128, 128, 128)))
+    assert max(his.color_de_contraste(hist)[1].values()) < 0.01
+
+
+def test_en_la_partida_el_balon_cambia_de_color_sin_parpadear():
+    from voleyar.juego import render_ar as ra
+    from voleyar.juego.navegador import paso_navegador
+
+    j = _juego()
+    naranja = cv2.resize(_cuarto_de_color((40, 110, 230)), (W, H))
+    paso_navegador(j, naranja)
+    assert j.color_balon != "naranja"  # en un cuarto naranja, el balón deja de ser naranja
+    elegido = j.color_balon
+    for _ in range(40):  # el cuarto sigue igual: el color no cambia
+        paso_navegador(j, naranja)
+    assert j.color_balon == elegido
+    j.color_modo = "rosa"  # o se elige a mano en la lente (−/+)
+    paso_navegador(j, naranja)
+    assert j.color_balon == "rosa"
+    s = ra.sprite_balon(20, 0, (175, 60, 255))
+    assert s.shape == (43, 43, 4) and not np.array_equal(s, ra.sprite_balon(20, 0))

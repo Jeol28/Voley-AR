@@ -167,6 +167,9 @@ frame → suavizado (filtros) → histograma de gris vs. referencia (Bhattachary
 
 - **Transformers:** `cercania` compara la mediana de la disparidad de Depth Anything dentro del objeto con la de la
   escena (normalizada por el rango p5-p95). Por debajo de `cercania_min` (0.10) el toque no cuenta.
+- **Histogramas:** `Juego._elegir_color_balon` calcula cada 15 frames `histograma_tono` (180 bins, solo S ≥ 60 y
+  V ≥ 50, como fracción de toda la imagen) y `color_de_contraste` elige entre seis colores el de menor masa en ±12 de
+  tono. Cambia solo si el nuevo tiene menos del 60 % de la masa del actual y pasaron 2 s.
 - **Filtros:** `rapidez_por_puntos` busca esquinas de Shi-Tomasi (matriz de estructura con derivadas de Sobel) cerca
   del objeto en el frame anterior y las sigue con Lucas-Kanade piramidal (pirámide gaussiana), con comprobación de ida
   y vuelta (error < 1 px). El percentil 75 del desplazamiento, dividido por el tiempo entre frames, da la rapidez en

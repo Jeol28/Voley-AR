@@ -204,3 +204,42 @@ def contraste(img: np.ndarray) -> float:
     """Desviación estándar de la luminancia (medida simple de contraste)."""
     g = img if img.ndim == 2 else cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     return float(g.std())
+
+
+# --------------------------------------------------------------------------- #
+# Color del balón: el que menos aparece en la escena
+# --------------------------------------------------------------------------- #
+
+# nombre: (tono en OpenCV 0-179, color BGR de los paneles)
+COLORES_BALON = {
+    "naranja": (9, (53, 107, 255)),
+    "amarillo": (28, (20, 215, 255)),
+    "cian": (90, (230, 205, 20)),
+    "azul": (112, (235, 120, 35)),
+    "morado": (140, (210, 70, 150)),
+    "rosa": (165, (175, 60, 255)),
+}
+
+
+def histograma_tono(img_bgr: np.ndarray, s_min: int = 60, v_min: int = 50) -> np.ndarray:
+    """Histograma de tono (180 bins) de los píxeles **con color**, como fracción de TODA la imagen.
+
+    Los píxeles grises, blancos o muy oscuros no tienen un tono fiable y no compiten con
+    el balón, así que no cuentan: en un cuarto gris todas las barras quedan bajas.
+    """
+    hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+    m = cv2.inRange(hsv, (0, s_min, v_min), (180, 255, 255))
+    h = cv2.calcHist([hsv], [0], m, [180], [0, 180]).ravel()
+    return (h / max(img_bgr.shape[0] * img_bgr.shape[1], 1)).astype(np.float32)
+
+
+def masa_de_tono(hist_tono: np.ndarray, tono: int, ancho: int = 12) -> float:
+    """Cuánta escena tiene un tono parecido (±``ancho``, el tono es circular: 179 está junto a 0)."""
+    idx = np.arange(tono - ancho, tono + ancho + 1) % 180
+    return float(hist_tono[idx].sum())
+
+
+def color_de_contraste(hist_tono: np.ndarray) -> tuple[str, dict[str, float]]:
+    """El color del balón que menos se parece a la escena, y cuánto se parece cada uno."""
+    masas = {n: masa_de_tono(hist_tono, t) for n, (t, _) in COLORES_BALON.items()}
+    return min(masas, key=masas.get), masas

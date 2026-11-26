@@ -138,6 +138,12 @@ class Juego:
         self._t_prev = time.perf_counter()
         self.eventos_totales: list[str] = []
         self.dt_frame = 1 / 30  # tiempo entre los dos últimos frames procesados
+        # Histogramas: el balón se pinta del color que menos hay en el cuarto ("auto") o del que se elija
+        self.color_modo = "auto"
+        self.color_balon = "naranja"
+        self.masas_color: dict[str, float] = {}
+        self.hist_tono = None
+        self._t_color = -10.0
         self.lineas_tema: list[str] = []  # datos del tema que se está viendo (para el panel)
         self.graficas_tema: list = []
         # Lo que cada tema cambió en la partida (se muestra en su lente)
@@ -381,10 +387,14 @@ class Juego:
                     self.stats["remates"] += 1
                 if self.partida.ultimo_tipo.get("potencia", 0.0) >= 0.5:
                     self.stats["rapidos"] += 1
+        self._elegir_color_balon(res, ahora)
+        from voleyar.core.histogramas import COLORES_BALON
+
         ia_xy = self.partida.ia.pos if self.op.modo == "ia" else None
         img = ra.dibujar_escena_pantalla(img, res.pose, res.modelo, self.partida.balon.pos, ia_xy,
                                          self.partida.ia.altura_golpe, self.partida.marcas, self.partida.t,
-                                         giro=int(self.partida.t * 8))
+                                         giro=int(self.partida.t * 8),
+                                         color_balon=COLORES_BALON[self.color_balon][1])
         mensaje = "" if self.partida.estado == "fin" else self.partida.mensaje
         m = self.partida.marcador
         n = self.partida.nombres
@@ -438,6 +448,29 @@ class Juego:
         if self.owl is not None and self.owl.resultado is not None:
             self.ultimo_owl = self.owl.resultado
         return mapa
+
+    def _elegir_color_balon(self, res: pl.ResultadoFrame, ahora: float) -> None:
+        """Histogramas en juego: el balón toma el color que menos aparece en el cuarto, para verse siempre.
+
+        Cada 15 frames se calcula el histograma de tono de la imagen (solo píxeles con
+        color). El balón cambia de color solo si otro resalta claramente más (su tono
+        aparece menos del 60 % de lo que aparece el actual) y han pasado 2 s desde el
+        último cambio: así no parpadea.
+        """
+        from voleyar.core import histogramas as his
+
+        if self.color_modo != "auto":
+            self.color_balon = self.color_modo
+        if self.n_frame % 15 and self.hist_tono is not None:
+            return
+        self.hist_tono = his.histograma_tono(cv2.resize(res.imagen, (160, 90), interpolation=cv2.INTER_AREA))
+        mejor, self.masas_color = his.color_de_contraste(self.hist_tono)
+        if self.color_modo != "auto" or mejor == self.color_balon:
+            return
+        actual = self.masas_color[self.color_balon]
+        if actual > 0.01 and self.masas_color[mejor] < 0.6 * actual and ahora - self._t_color >= 2.0:
+            self.color_balon = mejor
+            self._t_color = ahora
 
     def _aprender_piel(self, res: pl.ResultadoFrame) -> None:
         """La piel se aprende sola: histogramas H-S y Cr-Cb de la mano ya confirmada.
