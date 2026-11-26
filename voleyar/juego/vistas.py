@@ -400,8 +400,9 @@ def _transformers(juego, res, img):
     cmin = juego.config.cercania_min
     lineas.append(f"Cosas lejanas que no pudieron golpear: {juego.stats['lejos']}" +
                   (" (el filtro está apagado)" if cmin <= 0 else ""))
-    if prof is not None and prof.mapa.shape[:2] == img.shape[:2]:
-        out = _mezclar(img, cv2.applyColorMap(vis.normalizar_u8(prof.mapa), cv2.COLORMAP_INFERNO), 0.7)
+    if prof is not None:
+        mapa = cv2.resize(prof.mapa.astype(np.float32), (img.shape[1], img.shape[0]))  # pudo cambiar la resolución
+        out = _mezclar(img, cv2.applyColorMap(vis.normalizar_u8(mapa), cv2.COLORMAP_INFERNO), 0.7)
         lineas.append("Colores claros = cerca de la cámara · oscuros = lejos")
     else:
         lineas.append("Calculando qué está cerca…")

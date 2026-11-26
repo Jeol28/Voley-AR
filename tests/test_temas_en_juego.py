@@ -304,3 +304,37 @@ def test_en_la_partida_un_golpe_borroso_sale_rapidisimo():
             break
     assert "golpe" in j.eventos_totales and "rapidísimo" in j.partida.marcas[-1].texto
     assert j.stats["rapidos"] == 1
+
+
+def test_el_juego_aguanta_que_el_navegador_cambie_la_resolucion_del_video():
+    """El navegador baja la resolución si la conexión va lenta (p. ej. 640×360 → 452×254) mientras el mapa
+    de profundidad del hilo aún es del tamaño anterior: no debe romperse nada."""
+    from types import SimpleNamespace
+
+    from voleyar.juego.navegador import paso_navegador
+    from voleyar.utils import sinteticos as s
+
+    j = _juego("2j")
+    fuente = s.FuentePantalla(s.camara_ejemplo(W, H))
+    mapa_viejo = np.random.default_rng(0).random((H, W)).astype(np.float32)
+    j.prof = SimpleNamespace(resultado=SimpleNamespace(mapa=mapa_viejo, ms=30.0, dispositivo="cpu"), edad=0.1,
+                             ocupado=True, enviar=lambda *a: None)
+    for vista in ("juego", "transformers", "filtros"):
+        j.vista = vista
+        for k in range(30):
+            f = fuente.leer()[1]
+            if k % 10 >= 5:  # a ratos llega más pequeño
+                f = cv2.resize(f, (452, 254), interpolation=cv2.INTER_AREA)
+            assert paso_navegador(j, f) is not None
+
+
+def test_mano_delante_de_la_cara_con_un_mapa_de_otro_tamano():
+    from voleyar.core import transformers_models as tm
+
+    mapa = np.full((H, W), 0.2, np.float32)
+    mapa[200:300, 100:200] = 0.9  # la mano, cerca
+    mano = np.zeros((254, 452), np.uint8)
+    e = 452 / W
+    mano[int(200 * e):int(300 * e), int(100 * e):int(200 * e)] = 255
+    r = tm.mano_delante_de_la_cara(mapa, mano, (int(120 * e), 10, 60, 60))
+    assert r is not None and r.delante

@@ -99,6 +99,7 @@ class AnalizadorMovimiento:
     def _reiniciar(self) -> None:
         self.mog = cv2.createBackgroundSubtractorMOG2(history=self.historia, varThreshold=16, detectShadows=False)
         self.n = 0
+        self.forma: tuple[int, int] | None = None
 
     def aplicar(self, img_bgr: np.ndarray, config, caras=()) -> ResultadoMovimiento:
         h, w = img_bgr.shape[:2]
@@ -130,6 +131,10 @@ class AnalizadorMovimiento:
         # ~0.1·historia frames (≈ 3 s a 30 FPS) en volverse entorno. La tasa automática (1/n)
         # se tragaría en pocos frames una mano casi quieta al empezar la partida.
         alfa = -1 if self.n < self.calentamiento else 1.0 / self.historia
+        if self.forma is not None and self.forma != peq.shape[:2]:
+            self._reiniciar()  # el video cambió de forma (el navegador ajusta la resolución): se reaprende el fondo
+            alfa = -1
+        self.forma = peq.shape[:2]
         fg = self.mog.apply(peq, learningRate=alfa)  # lo que MOG2 no explica con su modelo del fondo
         self.n += 1
         if self.n <= self.calentamiento:
