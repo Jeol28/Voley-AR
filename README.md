@@ -19,7 +19,7 @@ virtual:
 Los transformers se usan solo en inferencia, con pesos públicos de Hugging Face (no se entrena ni se etiqueta nada).
 
 **Pruébalo en línea:** [huggingface.co/spaces/Jeol28/Vision](https://huggingface.co/spaces/Jeol28/Vision)
-(Gradio con ZeroGPU).
+(Gradio con ZeroGPU y video por WebRTC).
 
 ## Capturas
 
@@ -190,8 +190,14 @@ sube al Space con hardware `zero-a10g`. Diferencias de la versión en línea:
   `detectar_manos`). En local el decorador no hace nada.
 - **Estado por sesión:** la calibración y la piel de cada visitante viven en su `gr.State`, no en el disco del servidor.
   La calibración se descarga como `camara.json`.
-- **Jugar en el navegador:** el servidor no tiene ventana de OpenCV. La página del juego recibe la cámara del navegador
-  y cada frame pasa por el mismo `Juego.paso`. Unos botones reemplazan a las teclas.
+- **Jugar en el navegador por video (WebRTC):** la página usa el componente `WebRTC` de
+  [fastrtc](https://github.com/gradio-app/fastrtc). El navegador transmite la cámara como un video continuo y
+  comprimido (como una videollamada, no como fotos); cada frame pasa por el mismo `Juego.paso` y el video del juego
+  vuelve por el mismo canal a ~30 FPS. Si el servidor se atrasa, se descartan los frames viejos. Unos botones
+  reemplazan a las teclas; el video y los botones comparten el juego de cada visitante mediante una clave de sesión
+  (`voleyar/ui/sesiones.py`). La calibración de la cámara también va por video.
+- **Servidor TURN:** en un Space, WebRTC necesita un relé TURN. fastrtc lo pide a Hugging Face con un token guardado
+  como secreto `HF_TOKEN` del Space (*Settings → Variables and secrets*). En local no hace falta.
 
 ## Estrategia de ramificación
 
@@ -445,10 +451,11 @@ Ninguna necesita la cámara: usan escenas sintéticas de verdad conocida.
   centímetros vienen de la calibración.
 - **Resolución de la calibración.** `K` vale para la resolución y la relación de aspecto con que se calibró.
 - **OWLv2** va a unos 2 FPS: sirve para comparar, no para jugar.
-- **La versión en línea tiene retraso.** El servidor del Space procesa un frame en ~30 ms, pero cada frame va del
-  navegador a Hugging Face (EE. UU.) y vuelve como imagen: según la conexión son 200-400 ms de retraso. Para
-  compensarlo, en línea la cámara va a 640×360, la imagen vuelve en JPEG, el balón cae más lento y el golpe tiene más
-  alcance. Para jugar fluido, la versión de escritorio (`python jugar.py`) procesa todo en tu equipo, sin red.
+- **La versión en línea depende de la red.** La cámara viaja como video por WebRTC hasta el servidor del Space (en
+  EE. UU.) y el video del juego vuelve por el mismo canal. El servidor procesa un frame en ~30 ms y descarta los
+  frames viejos, así que el retraso no se acumula, pero sigue existiendo el tiempo de ida y vuelta. Por eso en línea
+  el balón cae un poco más lento y el golpe tiene algo más de alcance. La versión de escritorio (`python jugar.py`)
+  procesa todo en tu equipo, sin red.
 
 ## Estructura del repositorio
 
