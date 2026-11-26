@@ -45,6 +45,7 @@ class EntradaJugador:
     fuerza: float = 0.8
     gesto: str = "golpe"
     valida: bool | None = None  # False = mano fuera del plano de juego; None = sin información
+    toca: bool = False  # algo que no es el entorno (sustracción de fondo) está sobre el balón en la imagen
 
 
 @dataclass
@@ -127,6 +128,8 @@ class Partida:
 
     # ---------------------------------------------------------------- golpes
     def _toca_balon(self, e: EntradaJugador) -> bool:
+        if e.toca:  # cualquier objeto en movimiento sobre el balón (no solo una mano)
+            return True
         tope = self.p.radio + self.alcance
         if e.rayo is not None:
             o, d = e.rayo

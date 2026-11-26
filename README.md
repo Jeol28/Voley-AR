@@ -403,9 +403,14 @@ El pipeline de las dos manos tarda **≈ 20-25 ms por frame** a 960 px (la casca
      suficiente. Así se descartan las caras que se escapan de Viola-Jones, que se ven como una "palma" demasiado
      grande.
   2. **Movimiento (sustracción de fondo MOG2):** una mano nueva tiene que moverse para entrar al juego, así que un
-     objeto de color piel quieto no cuenta. El HUD avisa "mueve la mano para empezar".
+     objeto de color piel quieto no cuenta.
   3. **Histéresis:** aparece tras 3 frames válidos y desaparece tras 6 inválidos; el gesto se suaviza con la mayoría
      de los últimos 5 frames.
+- **Se golpea con cualquier cosa que no sea el entorno.** La mano no es obligatoria: el balón se devuelve si
+  algo en movimiento lo cubre en la imagen (al menos el 12 % de su disco en el primer plano de MOG2), sea una mano,
+  un cuaderno o la cabeza. Lo que lleva quieto un rato pasa al fondo y no golpea, y si más de la mitad de la imagen
+  "se mueve" a la vez se trata como un cambio de luz y se ignora. La mano reconocida sigue aportando el gesto
+  (fuerza) y el plano de juego; un objeto golpea con fuerza media y la velocidad que traiga.
 
 Más detalle en [`docs/arquitectura.md`](docs/arquitectura.md).
 

@@ -31,6 +31,7 @@ import cv2
 import numpy as np
 
 from voleyar.core import calibracion as cal
+from voleyar.core import config as cfgc
 from voleyar.core import pipeline as pl
 from voleyar.juego import render_ar as ra
 from voleyar.juego.asincrono import TrabajadorAsincrono
@@ -76,6 +77,9 @@ class EstadoJugador:
     muestras: list = field(default_factory=list)
     delante: bool | None = None  # Depth Anything: mano delante de la cara
     valida: bool | None = None
+    contacto: object = None  # segmentacion.ContactoMovimiento del último frame
+    c_prev: np.ndarray | None = None  # centro (px) de lo que tocó el balón en el frame anterior
+    t_prev: float = 0.0
 
 
 class Juego:
@@ -103,7 +107,8 @@ class Juego:
                   "Calibra con `python scripts/calibrar_camara.py` o desde la UI.")
         self.config = pl.ConfigPipeline(usar_calibracion=op.calibrado and self.modelo_camara is not None,
                                         espejo=op.espejo and not self.sintetico,
-                                        seguimiento=True)  # presencia estable de cada mano en el tiempo
+                                        seguimiento=True,  # presencia estable de cada mano en el tiempo
+                                        golpe_por_movimiento=True)  # y cualquier objeto que se mueva golpea
         self.estado_pipe = pl.EstadoPipeline()
         self.jugadores = {lado: EstadoJugador() for lado in self.lados}
         self.partida = self._crear_partida()
@@ -341,10 +346,16 @@ class Juego:
         for lado in self.lados:
             r = res.manos[lado]
             j = self.jugadores[lado]
+            contacto, vel_objeto = self._contacto(lado, res, ahora)
             if r.hay_mano:
                 j.valida = self._validar(lado, r)
                 gesto, fuerza = r.gesto  # suavizado en el tiempo
-                entradas[lado] = EntradaJugador(r.rayo, r.punto_plano, r.velocidad, fuerza, gesto, j.valida)
+                # si lo que toca es algo en movimiento, vale aunque la mano esté fuera del plano
+                entradas[lado] = EntradaJugador(r.rayo, r.punto_plano, r.velocidad, fuerza, gesto,
+                                                None if contacto.toca else j.valida, toca=contacto.toca)
+            elif contacto.toca:  # no es una mano, pero algo que no es el entorno toca el balón
+                j.valida = None
+                entradas[lado] = EntradaJugador(None, None, vel_objeto, 0.8, "objeto", None, toca=True)
             else:
                 entradas[lado] = None
         if self.usar_owl:
@@ -408,6 +419,34 @@ class Juego:
             self.ultimo_owl = self.owl.resultado
         return mapa
 
+    def _contacto(self, lado: int, res: pl.ResultadoFrame, ahora: float):
+        """¿Algo en movimiento (no el fondo) cubre el balón en la mitad de este jugador?
+
+        Devuelve el contacto y la velocidad estimada del objeto en unidades de cancha
+        (por el desplazamiento de lo que se mueve sobre el balón entre dos frames).
+        """
+        from voleyar.core import segmentacion as seg
+
+        j = self.jugadores[lado]
+        pos = self.partida.balon.pos
+        c = cal.proyectar(np.asarray(pos)[None], res.pose, res.modelo)[0]
+        r_px = ra.radio_en_pixeles(pos, res.pose, res.modelo)
+        w = res.imagen.shape[1]
+        if (c[0] < w / 2) != (lado < 0):  # el balón se ve en la otra mitad
+            contacto = seg.ContactoMovimiento(False, motivo="balón en la otra mitad")
+        else:
+            contacto = seg.contacto_en_movimiento(res.movimiento, c, r_px)
+        vel = np.zeros(2)
+        if contacto.centroide is not None:
+            if j.c_prev is not None and 0 < ahora - j.t_prev < 0.3:
+                d = (contacto.centroide - j.c_prev) / (ahora - j.t_prev) * (cfgc.RADIO_BALON / max(r_px, 1.0))
+                vel = np.clip(np.array([d[0], -d[1]]), -150.0, 150.0)  # en la imagen y crece hacia abajo
+            j.c_prev, j.t_prev = contacto.centroide, ahora
+        else:
+            j.c_prev = None
+        j.contacto = contacto
+        return contacto, vel
+
     def _estado_jugadores(self, img: np.ndarray, res: pl.ResultadoFrame) -> None:
         """Gesto, distancia y validez de cada mano, en la parte alta de su mitad."""
         h, w = img.shape[:2]
@@ -415,8 +454,7 @@ class Juego:
         for lado in self.lados:
             r, j = res.manos[lado], self.jugadores[lado]
             if not r.hay_mano:
-                quieta = r.validacion is not None and r.validacion.valida and r.presente is False
-                texto = "mueve la mano para empezar" if quieta else "sin mano"
+                texto = "golpea con la mano o con lo que quieras"
             else:
                 z = f"{r.distancia_cm:.0f} cm" if r.distancia_cm else "—"
                 ref = "midiendo…" if j.z_ref is None else f"plano a {j.z_ref:.0f} cm"

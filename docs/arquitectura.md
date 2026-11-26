@@ -148,3 +148,12 @@ En el navegador (y en el Space) la cámara llega como **video por WebRTC** (fast
   pipeline lee `config` en cada frame, el cambio se ve en el frame siguiente.
 - **Transformers:** su lente dispara Depth Anything y OWLv2. En escritorio van en hilos; en la web, una llamada cada
   2 s y solo mientras se mira ese tema.
+
+## 11. Golpe por sustracción de fondo
+
+`segmentacion.contacto_en_movimiento` cuenta el primer plano de MOG2 dentro del disco del balón proyectado
+(radio × 1.35). Desde el 12 % hay toque, sin importar qué objeto sea; `Juego._contacto` lo calcula en la mitad del
+jugador donde se ve el balón y estima la velocidad del objeto por el desplazamiento del centroide entre frames.
+`Partida._toca_balon` acepta ese toque además del de la mano (rayo de la cámara contra el balón). Salvaguardas: lo
+quieto se absorbe en el fondo y si más del 50 % de la imagen cambia (exposición, luz) no hay toque. La lente de
+Segmentación muestra el porcentaje de movimiento sobre el balón de cada jugador.

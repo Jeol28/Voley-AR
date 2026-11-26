@@ -297,6 +297,14 @@ def _segmentacion(juego, res, img):
     if mov:
         lineas.append("Parte de la mano en movimiento: " + " · ".join(mov) +
                       " (una mano nueva tiene que moverse para entrar al juego)")
+    toques = []
+    for l, j in getattr(juego, "jugadores", {}).items():
+        c = getattr(j, "contacto", None)
+        if c is not None and c.motivo != "balón en la otra mitad":
+            toques.append(f"{pl.NOMBRES_LADO[l]} {c.fraccion * 100:.0f} %" + (" ¡toca!" if c.toca else ""))
+    if toques:
+        lineas.append("Movimiento sobre el balón: " + " · ".join(toques) +
+                      " (desde 12 % lo devuelve, sea mano u objeto; lo quieto es fondo y no cuenta)")
     ws = [pl.NOMBRES_LADO[l] for l, r in res.manos.items() if r.uso_watershed]
     if ws:
         lineas.append("Watershed separó otra región pegada a la mano de " + " y ".join(ws))

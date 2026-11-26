@@ -64,6 +64,7 @@ class ConfigPipeline:
     memoria_caras: int = 90  # frames que se recuerda una cara perdida (la mano la tapa al jugar)
     seguimiento: bool = False  # presencia estable en el tiempo (histéresis + movimiento); el juego lo activa
     exigir_movimiento: bool = True  # con seguimiento: una mano nueva tiene que haberse movido
+    golpe_por_movimiento: bool = False  # calcular siempre el primer plano en movimiento: con él golpea cualquier objeto
     area_min_frac: float = 0.004  # área mínima de la mano como fracción de la imagen
 
 
@@ -132,7 +133,7 @@ class ResultadoFrame:
     clahe: np.ndarray | None = None
     suavizada: np.ndarray | None = None
     manos: dict[int, ResultadoMano] = field(default_factory=dict)
-    movimiento: np.ndarray | None = None  # primer plano en movimiento (MOG2), si hay seguimiento
+    movimiento: np.ndarray | None = None  # primer plano en movimiento (MOG2): lo que no es el entorno
     tiempos_ms: dict[str, float] = field(default_factory=dict)
 
     def mano(self, lado: int) -> ResultadoMano | None:
@@ -346,11 +347,12 @@ def procesar_frame(frame: np.ndarray, modelo_camara: cal.ModeloCamara | None,
     marca("caras")
     res.clahe, res.suavizada = preprocesar(img, config)
     marca("clahe+suavizado")
-    movimiento = estado.movimiento.aplicar(img) if config.seguimiento and config.exigir_movimiento else None
-    res.movimiento = movimiento
+    calcular = (config.seguimiento and config.exigir_movimiento) or config.golpe_por_movimiento
+    res.movimiento = estado.movimiento.aplicar(img) if calcular else None
+    mov_mano = res.movimiento if config.seguimiento and config.exigir_movimiento else None
     for lado in lados:
         res.manos[lado] = _procesar_mano(lado, res.suavizada, pieles.get(lado), res.mascara_caras, modelo, pose,
-                                         config, estado, t, movimiento)
+                                         config, estado, t, mov_mano)
         marca(f"mano {'J1' if lado < 0 else 'J2'}")
     return res
 
