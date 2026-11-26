@@ -11,7 +11,9 @@ Todo se puede elegir con el mouse o con las teclas que aparecen en los botones.
 Atajos durante la partida:
     ESPACIO  capturar el color de la piel (al inicio)
     ESC      pausa (seguir, recalibrar la piel, reiniciar, menú, salir)
-    D        ver cómo te detecta (máscaras, caras, contorno, casco, distancias, FPS)
+    V / B    siguiente / anterior tema: cómo te ve el juego, en vivo (calibración, filtros,
+             histogramas, umbralización, morfología, segmentación, caracterización, transformers)
+    [ / ]    cambiar el parámetro del tema que se está viendo
     C        con calibración / sin calibración
     O        detector de la mano: clásico / OWLv2
 
@@ -108,8 +110,11 @@ class Juego:
         self.pausado = False
         self.botones: list = []
         self.t_cuenta: float | None = None
-        self.depurar = False
+        self.vista = "juego"  # o un tema del curso (ver voleyar/juego/vistas.py)
         self.usar_owl = False
+        self.ultimo_prof = None  # último resultado de Depth Anything
+        self.ultimo_owl = None  # último resultado de OWLv2
+        self._t_modelos = 0.0
         self.n_frame = 0
         self.fps = 0.0
         self.ultimo_res: pl.ResultadoFrame | None = None
@@ -192,8 +197,17 @@ class Juego:
             self.op.dificultad = DIFICULTADES[(i + 1) % len(DIFICULTADES)]
         elif accion == "puntos":
             self.op.puntos = PUNTOS[(PUNTOS.index(self.op.puntos) + 1) % len(PUNTOS)] if self.op.puntos in PUNTOS else 15
-        elif accion == "ver_deteccion":
-            self.depurar = not self.depurar
+        elif accion in ("vista_sig", "vista_ant"):
+            from voleyar.juego.vistas import VISTAS
+
+            i = VISTAS.index(self.vista) + (1 if accion == "vista_sig" else -1)
+            self.vista = VISTAS[i % len(VISTAS)]
+        elif accion.startswith("vista:"):
+            self.vista = accion.split(":", 1)[1]
+        elif accion in ("param_mas", "param_menos"):
+            from voleyar.juego.vistas import cambiar_parametro
+
+            cambiar_parametro(self, self.vista, 1 if accion == "param_mas" else -1)
         elif accion == "calibracion" and self.modelo_camara is not None:
             self.config.usar_calibracion = not self.config.usar_calibracion
             self.estado_pipe = pl.EstadoPipeline()
@@ -229,7 +243,6 @@ class Juego:
             cal = ("sí" if self.config.usar_calibracion else "no") if self.modelo_camara is not None else "sin calibrar"
             return [Boton(f"Dificultad de la IA: {NOMBRE_DIFICULTAD[self.op.dificultad]}", "dificultad", "d"),
                     Boton(f"Partida a {self.op.puntos} puntos", "puntos", "p"),
-                    Boton(f"Ver cómo te detecta: {'sí' if self.depurar else 'no'}", "ver_deteccion", "v"),
                     Boton(f"Usar la calibración: {cal}", "calibracion", "c"),
                     Boton("Volver", "menu", "m", principal=True)]
         if self.op.interfaz == "web":
@@ -286,15 +299,15 @@ class Juego:
         self.ultimo_res = res
         img = res.imagen.copy()
         if self.fase == "calibrar_piel":
-            return self._paso_calibrar_piel(frame, res, img, ahora)
+            img = self._paso_calibrar_piel(frame, res, img, ahora)
+            if self.vista != "juego":  # también se puede mirar cada tema mientras se calibra la piel
+                from voleyar.juego.vistas import componer
+
+                img = componer(self, res, img, self.vista)
+            return img
 
         # --- profundidad (hilo aparte, cada N frames) -----------------------------
-        mapa = None
-        if self.prof is not None:
-            if self.n_frame % self.op.cada_n == 0 and not self.prof.ocupado:
-                self.prof.enviar(self._tarea_profundidad, res.imagen.copy())
-            if self.prof.resultado is not None and self.prof.edad < 1.0:
-                mapa = self.prof.resultado
+        mapa = self._modelos(res, ahora)
         if mapa is not None:
             from voleyar.core import transformers_models as tm
 
@@ -325,7 +338,7 @@ class Juego:
         img = ra.dibujar_escena_pantalla(img, res.pose, res.modelo, self.partida.balon.pos, ia_xy,
                                          self.partida.ia.altura_golpe, self.partida.marcas, self.partida.t,
                                          giro=int(self.partida.t * 8))
-        if self.depurar:
+        if self.vista in ("segmentacion", "caracterizacion"):
             img = pl.dibujar_depuracion(res, img)
         mensaje = "" if self.partida.estado == "fin" else self.partida.mensaje
         m = self.partida.marcador
@@ -334,9 +347,48 @@ class Juego:
                        "OWLv2" if self.usar_owl else "clásico", (n[JUGADOR], n[RIVAL]))
         self._estado_jugadores(img, res)
         img = self._dibujar_menu(img)
-        if self.depurar:
-            img = self._panel_depuracion(img, res, mapa)
+        if self.vista != "juego":
+            from voleyar.juego.vistas import componer
+
+            img = componer(self, res, img, self.vista)
         return img
+
+    def _modelos(self, res: pl.ResultadoFrame, ahora: float):
+        """Depth Anything y OWLv2 sin frenar el juego.
+
+        En escritorio corren en hilos (profundidad cada N frames; OWLv2 si se juega con él
+        o se mira la vista de transformers). En la web no hay hilos: solo se llaman cuando
+        se mira esa vista, como mucho cada 2 s (en ZeroGPU cada llamada pide la GPU).
+        """
+        mira = self.vista == "transformers"
+        if self.op.interfaz == "web":
+            if mira and ahora - self._t_modelos > 2.0:
+                from voleyar.core import transformers_models as tm
+
+                self._t_modelos = ahora
+                self.ultimo_prof = tm.estimar_profundidad(res.imagen)
+                self.ultimo_owl = tm.detectar_manos(res.imagen, ("a hand",), 0.15, None)
+            return self.ultimo_prof if mira else None
+        mapa = None
+        if self.prof is not None:
+            if (self.n_frame % self.op.cada_n == 0 or mira) and not self.prof.ocupado:
+                self.prof.enviar(self._tarea_profundidad, res.imagen.copy())
+            if self.prof.resultado is not None and self.prof.edad < 1.0:
+                mapa = self.prof.resultado
+                self.ultimo_prof = mapa
+        elif mira and ahora - self._t_modelos > 2.0:  # sin hilo de profundidad: una llamada cada 2 s
+            from voleyar.core import transformers_models as tm
+
+            self._t_modelos = ahora
+            self.ultimo_prof = tm.estimar_profundidad(res.imagen)
+        if mira and not self.usar_owl:
+            if self.owl is None:
+                self.owl = TrabajadorAsincrono("owl")
+            if not self.owl.ocupado:
+                self.owl.enviar(self._tarea_owl, res.imagen.copy())
+        if self.owl is not None and self.owl.resultado is not None:
+            self.ultimo_owl = self.owl.resultado
+        return mapa
 
     def _estado_jugadores(self, img: np.ndarray, res: pl.ResultadoFrame) -> None:
         """Gesto, distancia y validez de cada mano, en la parte alta de su mitad."""
@@ -425,47 +477,6 @@ class Juego:
                                 fondo=vis.BGR_GRAFITO)
         return img
 
-    def _panel_depuracion(self, img: np.ndarray, res: pl.ResultadoFrame, mapa) -> np.ndarray:
-        H, W = img.shape[:2]
-        ancho, alto = W // 3, H // 3
-
-        def celda(im, titulo):
-            c = np.full((alto, ancho, 3), vis.BGR_GRAFITO, np.uint8)
-            if im is not None:
-                im = vis.a_bgr(im)
-                e = min(ancho / im.shape[1], alto / im.shape[0])
-                im = cv2.resize(im, (max(1, int(im.shape[1] * e)), max(1, int(im.shape[0] * e))))
-                y0, x0 = (alto - im.shape[0]) // 2, (ancho - im.shape[1]) // 2
-                c[y0:y0 + im.shape[0], x0:x0 + im.shape[1]] = im
-            vis.poner_texto(c, titulo, (8, 6), 15, vis.BGR_NEUTRO, fondo=vis.BGR_GRAFITO)
-            return c
-
-        retro = None
-        capas = [r.retro for r in res.manos.values() if r.retro is not None]
-        if capas:
-            retro = cv2.applyColorMap(np.maximum.reduce(capas), cv2.COLORMAP_INFERNO)
-        prof = None if mapa is None else cv2.applyColorMap(vis.normalizar_u8(mapa.mapa), cv2.COLORMAP_INFERNO)
-        col = np.vstack([celda(pl.dibujar_mascaras(res), "Piel: mano (blanco), brazo (naranja), caras (rojo)"),
-                         celda(retro, "Retroproyección de cada jugador"),
-                         celda(prof, "Profundidad (Depth Anything V2)")])
-        col = col[:H] if col.shape[0] >= H else np.vstack(
-            [col, np.full((H - col.shape[0], ancho, 3), vis.BGR_GRAFITO, np.uint8)])
-        lineas = [f"FPS {self.fps:.0f} · caras {len(res.caras)} · f = {res.modelo.K[0, 0]:.0f} px",
-                  "ms: " + " ".join(f"{k[:6]} {v:.0f}" for k, v in res.tiempos_ms.items())]
-        for lado in self.lados:
-            r = res.manos[lado]
-            if r.analisis is None:
-                continue
-            p, v = r.punto_plano, r.velocidad
-            lineas.append(f"{pl.NOMBRES_LADO[lado]}: {r.analisis.n_dedos} dedos · Otsu T = {r.T_otsu} · "
-                          f"Z = {r.distancia_cm:.0f} cm · ({p[0]:.1f}, {p[2]:.1f}) · v ({v[0]:.0f}, {v[1]:.0f})/s"
-                          + (" · watershed" if r.uso_watershed else ""))
-        y = H - 22 * len(lineas) - 64
-        for linea in lineas:
-            vis.poner_texto(img, linea, (14, y), 16, vis.BGR_NEUTRO, fondo=vis.BGR_GRAFITO)
-            y += 22
-        return np.hstack([img, col])
-
     # ------------------------------------------------------------ teclado/mouse
     def tecla(self, k: int) -> bool:
         """Procesa una tecla. Devuelve False para salir."""
@@ -485,8 +496,9 @@ class Juego:
             return self.accion("pausa")
         if k == ord(" "):
             return self.accion("listo")
-        acciones = {ord("d"): "ver_deteccion", ord("c"): "calibracion", ord("o"): "owl", ord("p"): "pausa",
-                    ord("r"): "reiniciar", ord("q"): "pausa"}
+        acciones = {ord("v"): "vista_sig", ord("d"): "vista_sig", ord("b"): "vista_ant", ord("]"): "param_mas",
+                    ord("["): "param_menos", ord("c"): "calibracion", ord("o"): "owl", ord("p"): "pausa",
+                    ord("r"): "reiniciar", ord("q"): "pausa", 9: "vista_sig"}
         if k in acciones:
             return self.accion(acciones[k])
         if self.sintetico:
