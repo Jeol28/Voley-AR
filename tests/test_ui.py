@@ -68,7 +68,13 @@ def _sesion_con_juego(modo="2j"):
     return clave, juego, pantallas, jugar
 
 
-def test_calibracion_por_video_desde_el_juego():
+def test_calibracion_por_video_desde_el_juego(tmp_path, monkeypatch):
+    # Nunca escribir en config/camara.json real: la calibración de prueba va a un archivo temporal
+    from voleyar.ui import calibracion_web
+    from voleyar.utils.io import guardar_modelo_camara
+
+    monkeypatch.setattr(calibracion_web, "guardar_modelo_camara",
+                        lambda modelo, ruta=None: guardar_modelo_camara(modelo, tmp_path / "camara.json"))
     clave, _ = jw.abrir_pagina(None)
     modelo = s.camara_ejemplo(960, 540)
     tex, ppcm, origen = s.textura_tablero(30.0)

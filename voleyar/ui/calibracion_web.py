@@ -136,4 +136,5 @@ def guardar(res):
         return ("Calibración activa en tu sesión: las demás pestañas y el juego en el navegador ya la usan. "
                 "Descarga `camara.json` y cópialo en `config/` para usarlo en tu equipo."), str(ruta)
     ruta = guardar_modelo_camara(res.modelo)
-    return f"Guardado en `{ruta.relative_to(cfg.RAIZ_PROYECTO)}`. El juego y las demás pestañas ya lo usan.", str(ruta)
+    mostrar = ruta.relative_to(cfg.RAIZ_PROYECTO) if ruta.is_relative_to(cfg.RAIZ_PROYECTO) else ruta
+    return f"Guardado en `{mostrar}`. El juego ya la usa.", str(ruta)
