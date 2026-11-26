@@ -210,7 +210,8 @@ def procesar_frame(frame: np.ndarray, modelo_camara: cal.ModeloCamara | None, mo
         return comp_c, mano_c, info, np.count_nonzero(mano_c) / config.ppcm_cenital ** 2
 
     res.componente_cenital, res.mano_cenital, res.info_corte, area = cortar(res.componente)
-    if config.watershed_auto and area > config.factor_area_ws * config.area_mano_cm2:
+    extra = seg.hay_region_extra(res.mano_cenital, res.info_corte)
+    if config.watershed_auto and (extra or area > config.factor_area_ws * config.area_mano_cm2):
         comp_ws, res.etiquetas_ws, n = seg.watershed_mano(res.suavizada, res.componente, res.zona.franja)
         if n > 1 and comp_ws.any():
             res.uso_watershed = True
