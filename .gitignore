@@ -1,0 +1,24 @@
+# Entorno
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+.DS_Store
+
+# Modelos y cachés (los pesos se descargan bajo demanda desde Hugging Face)
+*.pt
+*.pth
+*.safetensors
+*.bin
+.cache/
+hf_cache/
+
+# Gradio
+.gradio/
+flagged/
+
+# Capturas temporales de calibración
+config/capturas/
