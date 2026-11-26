@@ -434,3 +434,44 @@ def separar_de_la_cara(img_bgr: np.ndarray, componente: np.ndarray, mascara_cara
     etiquetas = cv2.watershed(img, marcadores.copy())
     mano = cv2.bitwise_and(np.uint8(etiquetas >= 3) * 255, componente)
     return mano, etiquetas
+
+
+# =========================================================================== #
+# Segmentación por movimiento (sustracción de fondo)
+# =========================================================================== #
+
+
+class DetectorMovimiento:
+    r"""Primer plano en movimiento con una mezcla de gaussianas por píxel (MOG2).
+
+    Cada píxel se modela como una mezcla de :math:`K` gaussianas que se actualiza
+    con una tasa de aprendizaje :math:`\alpha`; un píxel es *primer plano* si su
+    valor no encaja en las gaussianas que representan el fondo. En el juego sirve
+    para no confundir con una mano a un objeto de color piel que nunca se mueve.
+    Trabaja sobre una copia reducida para que cueste ~1 ms.
+    """
+
+    def __init__(self, ancho: int = 320, historia: int = 300, umbral: float = 25.0, calentamiento: int = 15):
+        self.ancho = ancho
+        self.calentamiento = calentamiento
+        self.n = 0
+        self.mog = cv2.createBackgroundSubtractorMOG2(history=historia, varThreshold=umbral, detectShadows=False)
+
+    def aplicar(self, img_bgr: np.ndarray) -> np.ndarray:
+        """Máscara de lo que se movió. Los primeros frames (mientras aprende el fondo) no
+        cuentan: al arrancar todo parecería movimiento."""
+        h, w = img_bgr.shape[:2]
+        e = self.ancho / w
+        peq = cv2.resize(img_bgr, (self.ancho, max(1, int(round(h * e)))), interpolation=cv2.INTER_AREA)
+        fg = self.mog.apply(peq)
+        self.n += 1
+        if self.n <= self.calentamiento:
+            return np.zeros((h, w), np.uint8)
+        fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+        return cv2.resize(fg, (w, h), interpolation=cv2.INTER_NEAREST)
+
+
+def fraccion_en_movimiento(mascara: np.ndarray | None, movimiento: np.ndarray | None) -> float | None:
+    if mascara is None or movimiento is None or not mascara.any():
+        return None
+    return float(np.count_nonzero(cv2.bitwise_and(mascara, movimiento)) / np.count_nonzero(mascara))

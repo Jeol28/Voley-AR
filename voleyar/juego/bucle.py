@@ -102,7 +102,8 @@ class Juego:
             print("⚠  No hay config/camara.json: se juega SIN calibración. "
                   "Calibra con `python scripts/calibrar_camara.py` o desde la UI.")
         self.config = pl.ConfigPipeline(usar_calibracion=op.calibrado and self.modelo_camara is not None,
-                                        espejo=op.espejo and not self.sintetico)
+                                        espejo=op.espejo and not self.sintetico,
+                                        seguimiento=True)  # presencia estable de cada mano en el tiempo
         self.estado_pipe = pl.EstadoPipeline()
         self.jugadores = {lado: EstadoJugador() for lado in self.lados}
         self.partida = self._crear_partida()
@@ -342,8 +343,8 @@ class Juego:
             j = self.jugadores[lado]
             if r.hay_mano:
                 j.valida = self._validar(lado, r)
-                entradas[lado] = EntradaJugador(r.rayo, r.punto_plano, r.velocidad, r.analisis.fuerza,
-                                                r.analisis.gesto, j.valida)
+                gesto, fuerza = r.gesto  # suavizado en el tiempo
+                entradas[lado] = EntradaJugador(r.rayo, r.punto_plano, r.velocidad, fuerza, gesto, j.valida)
             else:
                 entradas[lado] = None
         if self.usar_owl:
@@ -414,11 +415,12 @@ class Juego:
         for lado in self.lados:
             r, j = res.manos[lado], self.jugadores[lado]
             if not r.hay_mano:
-                texto = "sin mano"
+                quieta = r.validacion is not None and r.validacion.valida and r.presente is False
+                texto = "mueve la mano para empezar" if quieta else "sin mano"
             else:
                 z = f"{r.distancia_cm:.0f} cm" if r.distancia_cm else "—"
                 ref = "midiendo…" if j.z_ref is None else f"plano a {j.z_ref:.0f} cm"
-                texto = f"{r.analisis.gesto} · {z} ({ref})"
+                texto = f"{r.gesto[0]} · {z} ({ref})"
             x = 16 if lado < 0 else w // 2 + 16
             vis.poner_texto(img, texto, (x + 22, int(h * 0.12)), tam, vis.BGR_NEUTRO, fondo=vis.BGR_GRAFITO)
             color = vis.BGR_NEUTRO if j.valida is None else (vis.BGR_VERDE if j.valida else vis.BGR_ROJO)

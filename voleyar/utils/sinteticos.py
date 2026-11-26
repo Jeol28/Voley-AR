@@ -489,7 +489,7 @@ def escena_pantalla(modelo: ModeloCamara | None = None, jugadores: list[JugadorS
     img, caras = fondo_pantalla(modelo, jugadores, semilla)
     manos, pieles = [], []
     for i, j in enumerate(jugadores):
-        if j.visible:
+        if j.visible and j.mano_visible:
             img, m, p = dibujar_mano_pantalla(img, modelo, j, semilla + i)
         else:
             m = p = np.zeros(img.shape[:2], np.uint8)
