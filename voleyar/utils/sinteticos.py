@@ -286,10 +286,11 @@ class EstadoManoSintetica:
 
 
 def dibujar_mano(img: np.ndarray, modelo: ModeloCamara, pose: Pose, mano: EstadoManoSintetica,
-                 semilla: int = 0) -> tuple[np.ndarray, np.ndarray]:
+                 semilla: int = 0, con_piel: bool = False):
     """Proyecta la mano sintética (a ``mano.altura`` cm) sobre la imagen.
 
-    Devuelve la imagen y la máscara verdadera de la mano (sin el brazo).
+    Devuelve la imagen y la máscara verdadera de la mano (sin el brazo); con
+    ``con_piel=True`` también la máscara de toda la piel (mano + antebrazo).
     """
     out = img.copy()
     polis = mano_a_mesa(poligonos_mano(mano.n_dedos, True), mano.pos, mano.angulo)
@@ -312,7 +313,7 @@ def dibujar_mano(img: np.ndarray, modelo: ModeloCamara, pose: Pose, mano: Estado
     piel = np.clip(piel, 0, 255).astype(np.uint8)
     capa_suave = cv2.GaussianBlur(capa, (3, 3), 0).astype(np.float32)[..., None] / 255.0
     out = (piel * capa_suave + out * (1 - capa_suave)).astype(np.uint8)
-    return out, verdad
+    return (out, verdad, capa) if con_piel else (out, verdad)
 
 
 def escena_cancha(modelo: ModeloCamara | None = None, pose: Pose | None = None,
@@ -329,8 +330,9 @@ def escena_cancha(modelo: ModeloCamara | None = None, pose: Pose | None = None,
     img = renderizar_plano(tex, ppcm, origen, modelo, pose, fondo_mesa(modelo.ancho, modelo.alto, semilla))
     verdad: dict = {"modelo": modelo, "pose": pose, "mascara_mano": None}
     if mano is not None:
-        img, m = dibujar_mano(img, modelo, pose, mano, semilla)
+        img, m, piel = dibujar_mano(img, modelo, pose, mano, semilla, con_piel=True)
         verdad["mascara_mano"] = m
+        verdad["mascara_piel"] = piel
         verdad["mano"] = mano
     if ruido > 0:
         img = ruido_camara(img, ruido, semilla)
