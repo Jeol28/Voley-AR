@@ -273,30 +273,40 @@ def accion(nombre: str):
 
 
 def _texto_param(juego, vista: str) -> str:
-    from voleyar.juego.vistas import QUE_HACE, texto_parametro
+    from voleyar.juego.vistas import QUE_HACE, parametro_disponible, texto_parametro
 
     if vista == "juego" or juego is None:
-        return ""
+        return "Elige un tema en **¿Qué quieres ver?** y ajústalo con **− / +**."
+    if not parametro_disponible(juego, vista):
+        return f"{QUE_HACE[vista]}  \n**− / +:** {texto_parametro(juego, vista)}."
     return f"{QUE_HACE[vista]}  \n**−/+ cambia** {texto_parametro(juego, vista)}"
 
 
-def elegir_vista(clave: str, vista: str) -> str:
+def _controles_param(juego, vista: str):
+    """Texto del ajuste y los botones − / + (apagados si en esta vista no hay nada que cambiar)."""
+    from voleyar.juego.vistas import parametro_disponible
+
+    activo = parametro_disponible(juego, vista)
+    return _texto_param(juego, vista), gr.update(interactive=activo), gr.update(interactive=activo)
+
+
+def elegir_vista(clave: str, vista: str):
     s = sesiones.obtener(clave)
     with s.cerrojo:
         if s.juego is not None:
             s.juego.vista = vista
-        return _texto_param(s.juego, vista)
+        return _controles_param(s.juego, vista)
 
 
 def cambiar(paso: int):
-    def manejador(clave: str, vista: str) -> str:
+    def manejador(clave: str, vista: str):
         from voleyar.juego.vistas import cambiar_parametro
 
         s = sesiones.obtener(clave)
         with s.cerrojo:
             if s.juego is not None:
                 cambiar_parametro(s.juego, vista, paso)
-            return _texto_param(s.juego, vista)
+            return _controles_param(s.juego, vista)
 
     manejador.__name__ = "parametro_mas" if paso > 0 else "parametro_menos"
     return manejador
@@ -460,9 +470,9 @@ def construir(demo: gr.Blocks) -> None:
                     b_menu = gr.Button("Menú principal")
                 vista = gr.Dropdown(OPCIONES_VISTA, value="juego", label="¿Qué quieres ver?")
                 with gr.Row():
-                    b_menos = gr.Button("−", min_width=60)
-                    b_mas = gr.Button("+", min_width=60)
-                param = gr.Markdown(elem_classes="nota")
+                    b_menos = gr.Button("−", min_width=60, interactive=False)
+                    b_mas = gr.Button("+", min_width=60, interactive=False)
+                param = gr.Markdown(_texto_param(None, "juego"), elem_classes="nota")
             with gr.Column(scale=9):
                 video = WebRTC(label="Voley AR", mode="send-receive", modality="video", mirror_webcam=False,
                                track_constraints=VIDEO_JUEGO, rtc_configuration=configuracion_rtc(),
@@ -487,9 +497,9 @@ def construir(demo: gr.Blocks) -> None:
     for b, nombre in ((b_pausa, "pausa"), (b_reini, "reiniciar"), (b_revancha, "revancha")):
         b.click(accion(nombre), clave, None)
     b_menu.click(volver_al_menu, clave, [chip, *pantallas])
-    vista.change(elegir_vista, [clave, vista], param)
-    b_menos.click(cambiar(-1), [clave, vista], param)
-    b_mas.click(cambiar(1), [clave, vista], param)
+    vista.change(elegir_vista, [clave, vista], [param, b_menos, b_mas])
+    b_menos.click(cambiar(-1), [clave, vista], [param, b_menos, b_mas])
+    b_mas.click(cambiar(1), [clave, vista], [param, b_menos, b_mas])
 
     video_cal.stream(VideoStreamHandler(frame_calibracion, fps=15, skip_frames=True), inputs=[video_cal, clave],
                      outputs=[video_cal], concurrency_limit=CONCURRENCIA_VIDEO, send_input_on="submit")

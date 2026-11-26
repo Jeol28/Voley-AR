@@ -92,9 +92,22 @@ def cambiar_parametro(juego, vista: str, paso: int) -> None:
     p.escribir(juego, p.valores[(i + paso) % len(p.valores)])
 
 
+def parametro_disponible(juego, vista: str) -> bool:
+    """¿Se puede cambiar ahora el ajuste de esta vista? (sin calibración no hay nada que encender)."""
+    if vista not in PARAMETROS or juego is None:
+        return False
+    if vista == "calibracion":
+        return juego.modelo_camara is not None
+    return True
+
+
 def texto_parametro(juego, vista: str) -> str:
     p = PARAMETROS.get(vista)
-    return "" if p is None else f"{p.nombre}: {p.formato(p.leer(juego))}"
+    if p is None:
+        return ""
+    if not parametro_disponible(juego, vista):
+        return "nada todavía: calibra la cámara desde el inicio (Calibrar cámara) para comparar con y sin calibración"
+    return f"{p.nombre}: {p.formato(p.leer(juego))}"
 
 
 # --------------------------------------------------------------------------- #
@@ -383,7 +396,10 @@ def tarjeta(juego, img: np.ndarray, vista: str, lineas: list[str]) -> np.ndarray
     H, W = img.shape[:2]
     t = max(11, H // 44)
     parametro = texto_parametro(juego, vista)
-    pista = (("[ ]" if juego.op.interfaz != "web" else "− / +") + f" cambia {parametro}") if parametro else ""
+    if parametro and not parametro_disponible(juego, vista):
+        pista = "Sin calibración de la cámara: calíbrala desde el inicio para compararla"
+    else:
+        pista = (("[ ]" if juego.op.interfaz != "web" else "− / +") + f" cambia {parametro}") if parametro else ""
     filas = [f"{VISTAS.index(vista)} · {TITULOS[vista]} — {QUE_HACE[vista]}", *lineas[:2]] + ([pista] if pista else [])
     alto = int((len(filas) + 0.6) * t * 1.45)
     y0 = H - alto - int(t * 2.6)  # deja libre la línea de estado de abajo

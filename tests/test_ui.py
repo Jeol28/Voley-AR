@@ -114,7 +114,8 @@ def test_cada_sesion_tiene_su_propio_juego():
 def test_cada_tema_se_ve_en_la_partida_y_su_ajuste_cambia(vista):
     clave, juego, _, jugar = _sesion_con_juego()
     jugar(3)
-    texto = jw.elegir_vista(clave, vista)
+    texto, menos, mas = jw.elegir_vista(clave, vista)
+    assert menos["interactive"] and mas["interactive"]  # hay algo que ajustar: botones encendidos
     out = jugar(1)
     assert out.shape == (360, 640, 3)  # el tema se ve dentro del juego, no en un panel aparte
     from voleyar.juego.vistas import lente
@@ -124,6 +125,18 @@ def test_cada_tema_se_ve_en_la_partida_y_su_ajuste_cambia(vista):
     assert lineas and escena.shape == res.imagen.shape and not np.array_equal(escena, res.imagen)
     p = PARAMETROS[vista]
     antes = p.leer(juego)
-    texto2 = jw.cambiar(1)(clave, vista)
+    texto2, _, _ = jw.cambiar(1)(clave, vista)
     assert p.leer(juego) != antes and "cambia" in texto2
     jugar(1)  # el pipeline sigue funcionando con el ajuste nuevo
+
+
+def test_sin_ajuste_disponible_los_botones_se_apagan_y_explican_por_que():
+    clave, juego, _, jugar = _sesion_con_juego()
+    jugar(2)
+    texto, menos, mas = jw.elegir_vista(clave, "juego")  # la vista normal no tiene ajuste
+    assert not menos["interactive"] and not mas["interactive"] and "Qué quieres ver" in texto
+    juego.modelo_camara = None  # cámara sin calibrar: no hay calibración que encender o apagar
+    texto, menos, mas = jw.elegir_vista(clave, "calibracion")
+    assert not menos["interactive"] and "calibra la cámara" in texto
+    texto, menos, mas = jw.elegir_vista(clave, "filtros")
+    assert menos["interactive"] and mas["interactive"]
