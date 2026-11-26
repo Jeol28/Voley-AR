@@ -11,6 +11,9 @@ La calibración de la cámara es indispensable: sin la matriz intrínseca `K` y 
 red y el balón no quedan pegados a la mesa. Cada tema del curso cumple una función real dentro del juego, y los
 transformers se usan solo en inferencia, con pesos públicos de Hugging Face (no se entrena ni se etiqueta nada).
 
+**Pruébalo en línea:** [huggingface.co/spaces/Jeol28/Vision](https://huggingface.co/spaces/Jeol28/Vision)
+(Gradio con ZeroGPU).
+
 ## Capturas
 
 | | |
@@ -137,7 +140,7 @@ La misma UI corre como Space de Gradio con ZeroGPU:
 
 ```bash
 hf auth login                                        # una vez
-python scripts/desplegar_space.py --repo Jeol28/voley-ar
+python scripts/desplegar_space.py --repo Jeol28/Vision
 ```
 
 El script arma `dist/space/` (código, imprimibles, `despliegue/requirements.txt` y el README con su cabecera YAML),

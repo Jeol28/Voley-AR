@@ -2,7 +2,7 @@
 
 Uso::
 
-    python scripts/desplegar_space.py --repo Jeol28/voley-ar            # crea/actualiza y sube
+    python scripts/desplegar_space.py --repo Jeol28/Vision              # crea/actualiza y sube
     python scripts/desplegar_space.py --solo-construir                  # solo arma dist/space
 
 Requiere haber iniciado sesión (``hf auth login``). El Space se crea con
@@ -71,7 +71,7 @@ def publicar(repo: str, privado: bool, hardware: str) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--repo", default="Jeol28/voley-ar")
+    ap.add_argument("--repo", default="Jeol28/Vision")
     ap.add_argument("--privado", action="store_true")
     ap.add_argument("--hardware", default="zero-a10g")
     ap.add_argument("--solo-construir", action="store_true")
