@@ -13,7 +13,7 @@ from voleyar.ui.estado import ESTADO, Frame, con_sesion, rgb
 from voleyar.utils import visualizacion as vis
 
 TEORIA = r"""
-**Calibración de la piel.** Con los píxeles del recuadro se construyen histogramas 2D de **crominancia**
+**Calibración de la piel.** Cada jugador calibra **su** piel (los tonos pueden ser distintos). Con los píxeles del recuadro se construyen histogramas 2D de **crominancia**
 (H-S en HSV y Cr-Cb en YCrCb), descartando el brillo para tolerar sombras. Normalizados estiman
 $P(\text{color}\mid\text{piel})$.
 
@@ -62,18 +62,24 @@ def procesar(fr: Frame, cx: float, cy: float, lado: float, espacio: str, clip: f
     return rgb(vista), hs, cc, rgb(retro_c) if retro_c is not None else None, rgb(ecu), rgb(clahe), graf, contraste
 
 
-def usar_piel(fr: Frame | None, cx, cy, lado):
+def usar_piel(fr: Frame | None, cx, cy, lado, jugador):
     if fr is None:
         return "Carga una imagen primero."
     img, _ = pl.preparar_imagen(fr.img, ESTADO.modelo_para(fr), ESTADO.config)
     _, suav = pl.preprocesar(img, ESTADO.config)
     try:
-        ESTADO.piel = his.calibrar_piel(suav, _rect(img, cx, cy, lado))
+        modelo = his.calibrar_piel(suav, _rect(img, cx, cy, lado))
+        objetivo = (-1, 1) if jugador == "ambos" else (int(jugador),)
+        pieles = dict(ESTADO.pieles)
+        for j in objetivo:
+            pieles[j] = modelo
+        ESTADO.pieles = pieles
         ESTADO.piel_origen = f"calibrada con el recuadro ({fr.nombre})"
     except ValueError as e:
         return f"**{e}**"
-    return ('<span class="dato-ok">Modelo de piel guardado.</span> Las pestañas de Umbralización, Morfología, '
-            "Segmentación, Caracterización y Pipeline ya lo usan.")
+    quien = {"-1": "del jugador 1", "1": "del jugador 2", "ambos": "de ambos jugadores"}[str(jugador)]
+    return (f'<span class="dato-ok">Modelo de piel {quien} guardado.</span> Las pestañas de Umbralización, '
+            "Morfología, Segmentación, Caracterización y Pipeline ya lo usan.")
 
 
 def construir(demo: gr.Blocks) -> None:
@@ -81,9 +87,11 @@ def construir(demo: gr.Blocks) -> None:
     with gr.Row():
         with gr.Column(scale=4):
             entrada = bloque_entrada()
-            cx = gr.Slider(0, 100, value=52, step=0.5, label="Recuadro: centro X (%)")
-            cy = gr.Slider(0, 100, value=42, step=0.5, label="Recuadro: centro Y (%)")
+            cx = gr.Slider(0, 100, value=36, step=0.5, label="Recuadro: centro X (%)")
+            cy = gr.Slider(0, 100, value=66, step=0.5, label="Recuadro: centro Y (%)")
             lado = gr.Slider(2, 30, value=5, step=0.5, label="Recuadro: lado (% de la imagen)")
+            jugador = gr.Radio([("Jugador 1", "-1"), ("Jugador 2", "1"), ("Ambos", "ambos")], value="-1",
+                               label="¿De quién es esta piel?")
             boton = gr.Button("Usar este recuadro como modelo de piel", variant="primary")
             aviso = gr.Markdown()
         with gr.Column(scale=6):
@@ -108,5 +116,5 @@ def construir(demo: gr.Blocks) -> None:
     conectar(entrada, procesar, params, salidas)
     cargar_al_inicio(demo, entrada, procesar, params, salidas)
     S = sesion_componente()
-    boton.click(con_sesion(usar_piel), [S, entrada.estado, cx, cy, lado], [S, aviso])
+    boton.click(con_sesion(usar_piel), [S, entrada.estado, cx, cy, lado, jugador], [S, aviso])
     teoria(TEORIA)

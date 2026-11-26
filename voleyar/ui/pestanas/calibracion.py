@@ -15,28 +15,34 @@ from voleyar.juego import render_ar as ra
 from voleyar.entorno import EN_SPACE
 from voleyar.ui.comunes import (CONCURRENCIA_VIVO, LATEX, bloque_entrada, cargar_al_inicio, conectar,
                                 sesion_componente, teoria)
-from voleyar.ui.estado import ESTADO, Frame, con_sesion, rgb, tabla_md
+from voleyar.ui.estado import EJEMPLO_CANCHA, ESTADO, Frame, con_sesion, ejecutar_pipeline, rgb, tabla_md
 from voleyar.utils import sinteticos as sin
 from voleyar.utils import visualizacion as vis
 from voleyar.utils.io import guardar_modelo_camara
 
 TEORIA = r"""
-**Modelo pinhole.** Un punto de la mesa $P_w$ pasa a la cámara con los **extrínsecos** $P_c = R P_w + t$
-y se proyecta con los **intrínsecos**:
+**Modelo pinhole.** Un punto $P_w$ pasa a la cámara con los **extrínsecos** $P_c = R P_w + t$ y se proyecta con
+los **intrínsecos**:
 
 $$ s\begin{bmatrix}u\\v\\1\end{bmatrix} = K\begin{bmatrix}x_c\\y_c\\z_c\end{bmatrix},\qquad
 K=\begin{bmatrix}f_x & 0 & c_x\\ 0 & f_y & c_y\\ 0&0&1\end{bmatrix} $$
 
-**Distorsión** (sobre $x=x_c/z_c$, $y=y_c/z_c$, $r^2=x^2+y^2$):
-radial $x(1+k_1r^2+k_2r^4+k_3r^6)$ y tangencial $2p_1xy + p_2(r^2+2x^2)$.
+**Distorsión** (sobre $x=x_c/z_c$, $y=y_c/z_c$, $r^2=x^2+y^2$): radial $x(1+k_1r^2+k_2r^4+k_3r^6)$ y tangencial
+$2p_1xy + p_2(r^2+2x^2)$.
 
-**Calibración de Zhang.** Cada vista del tablero da una homografía plano→imagen; con varias vistas
-**inclinadas** se despeja $K$ y luego se refina todo minimizando el error de reproyección
-$e_{RMS}=\sqrt{\frac1N\sum\lVert p_i-\hat p_i\rVert^2}$. Un buen resultado está por debajo de 0.5 px.
+**Calibración de Zhang.** Cada vista del tablero da una homografía plano→imagen; con varias vistas **inclinadas** se
+despeja $K$ y se refina todo minimizando el error de reproyección $e_{RMS}=\sqrt{\frac1N\sum\lVert p_i-\hat p_i\rVert^2}$
+(bueno: < 0.5 px).
 
-**Pose de la cancha.** Las 16 esquinas de los ArUco tienen coordenadas conocidas en cm; `solvePnP` encuentra
-$R, t$. Sin calibrar ($f=$ ancho, centro en la mitad, sin distorsión) la pose compensa el error con una
-inclinación falsa: lo plano encaja más o menos, pero **lo que tiene altura (la red, el balón) flota**.
+**Para qué sirve en el juego (modo pantalla):**
+
+1. **Corrección de distorsión**: la red, el balón y las manos comparten la geometría pinhole hasta los bordes.
+2. **Cámara virtual**: la cancha se dibuja con una cámara virtual que usa la **misma** $K$; así las manos reales y el
+   balón virtual viven en el mismo espacio (rayo de cada píxel ∩ plano de la red).
+3. **Distancia de la mano**: $w = f\,W/Z \Rightarrow Z = f\,W/w$ con el radio de la palma $W$ conocido. Sin calibrar,
+   $f$ está mal y $Z$ sale escalada: el juego no sabe si la mano está en el plano de juego.
+
+**Pose con ArUco (v1).** Con una cancha impresa, `solvePnP` sobre las esquinas de los marcadores da $R, t$ de la mesa.
 """
 
 
@@ -213,6 +219,40 @@ def comparar_cancha(fr: Frame, modo: str, altura_balon: float):
     return rgb(out), md
 
 
+def comparar_distancia(fr: Frame, altura_balon: float):
+    """Misma imagen con la K calibrada y con la K aproximada: distancia de cada mano y escena AR."""
+    from voleyar.core import pipeline as pl
+
+    filas, vistas = [], []
+    verdad = {lado: j.distancia for lado, j in zip(pl.LADOS, fr.verdad.get("jugadores", []))}
+    resultados = {}
+    for usar, nombre in ((True, "Con calibración"), (False, "Sin calibración")):
+        res = ejecutar_pipeline(fr, usar_calibracion=usar)
+        resultados[usar] = res
+        balon = np.array([-5.0, 0.0, altura_balon])
+        img = ra.dibujar_escena_pantalla(res.imagen, res.pose, res.modelo, balon)
+        img = pl.dibujar_depuracion(res, img)
+        if usar and ESTADO.modelo_para(fr) is None:
+            nombre = "Sin calibración (aún no calibras)"
+        vis.poner_texto(img, nombre, (16, 14), 26, vis.BGR_NARANJA, negrita=True, fondo=vis.BGR_GRAFITO)
+        vistas.append(img)
+    for lado in pl.LADOS:
+        zc = resultados[True].manos[lado].distancia_cm
+        zs = resultados[False].manos[lado].distancia_cm
+        real = verdad.get(lado)
+        fmt = lambda z: "—" if z is None else f"{z:.0f} cm"  # noqa: E731
+        filas.append([pl.NOMBRES_LADO[lado], fmt(zc), fmt(zs), fmt(real)])
+    m_cal = resultados[True].modelo
+    m_sin = resultados[False].modelo
+    md = (r"La distancia de cada mano sale de la proyección pinhole al revés, $Z = f\,W/w$ (con $W$ = radio de la "
+          f"palma, {cfg.PALMA_RADIO_CM} cm). Con la $K$ calibrada $f$ = **{m_cal.K[0, 0]:.0f} px**; con la aproximada "
+          f"$f$ = ancho = **{m_sin.K[0, 0]:.0f} px**, así que $Z$ sale escalada por ese cociente y el juego cree que "
+          "la mano está más lejos (o más cerca) de lo que está. Además, sin corregir la distorsión, la red y las "
+          "manos cerca de los bordes quedan curvadas.\n\n"
+          + tabla_md(filas, ["Mano", "Z con calibración", "Z sin calibración", "Z real (escena sintética)"]))
+    return rgb(vis.mosaico(vistas, None, 2, 640)), md
+
+
 def construir(demo: gr.Blocks) -> None:
     gr.Markdown("## Calibración de la cámara y pose de la cancha")
     with gr.Tabs():
@@ -255,16 +295,29 @@ def construir(demo: gr.Blocks) -> None:
             b_gua.click(con_sesion(guardar), [sesion_componente(), resultado], [sesion_componente(), guardado, archivo])
             gr.Markdown("También puedes calibrar con `python scripts/calibrar_camara.py`: usa la misma captura de "
                         "OpenCV que el juego, así la resolución coincide.")
-        with gr.Tab("Cancha: con y sin calibración"):
+        with gr.Tab("Distancia de la mano: con y sin calibración"):
             with gr.Row():
                 with gr.Column(scale=4):
                     entrada = bloque_entrada()
+                    altura = gr.Slider(1.2, 12, value=7.0, step=0.2, label="Altura del balón (unidades de cancha)")
+                    tabla_d = gr.Markdown(latex_delimiters=LATEX)
+                with gr.Column(scale=6):
+                    render_d = gr.Image(label="Con calibración (izquierda) y sin calibración (derecha)", height=430)
+            conectar(entrada, comparar_distancia, [altura], [render_d, tabla_d])
+            cargar_al_inicio(demo, entrada, comparar_distancia, [altura], [render_d, tabla_d])
+        with gr.Tab("Pose con ArUco (demo de la v1)"):
+            gr.Markdown("La versión 1 usaba una cancha impresa con marcadores ArUco y `solvePnP` para conocer la pose "
+                        "de la mesa. El juego actual ya no la necesita, pero el tema sigue aquí: imprime "
+                        "`docs/imprimibles/cancha.pdf` o usa la escena de ejemplo.")
+            with gr.Row():
+                with gr.Column(scale=4):
+                    entrada_c = bloque_entrada(ejemplos=[EJEMPLO_CANCHA])
                     modo = gr.Radio(["Con calibración", "Sin calibración", "Ambos (superpuestos)"],
                                     value="Ambos (superpuestos)", label="Modo")
-                    altura = gr.Slider(1.2, 15, value=6.0, step=0.2, label="Altura del balón (cm)")
+                    altura_c = gr.Slider(1.2, 15, value=6.0, step=0.2, label="Altura del balón (cm)")
                 with gr.Column(scale=6):
-                    render = gr.Image(label="Realidad aumentada sobre la cancha", height=430)
+                    render = gr.Image(label="Realidad aumentada sobre la cancha impresa", height=430)
                     tabla = gr.Markdown(latex_delimiters=LATEX)
-            conectar(entrada, comparar_cancha, [modo, altura], [render, tabla])
-            cargar_al_inicio(demo, entrada, comparar_cancha, [modo, altura], [render, tabla])
+            conectar(entrada_c, comparar_cancha, [modo, altura_c], [render, tabla])
+            cargar_al_inicio(demo, entrada_c, comparar_cancha, [modo, altura_c], [render, tabla])
     teoria(TEORIA)

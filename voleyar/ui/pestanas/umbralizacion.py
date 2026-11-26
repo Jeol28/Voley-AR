@@ -22,7 +22,7 @@ TEORIA = r"""
 el brillo queda aislado en Y, así que Cr-Cb suele separar mejor la piel que H-S (el tono H de la piel se
 confunde con la madera y el rojo da la vuelta en 0/180).
 
-**Otsu** sobre la retroproyección (solo dentro de la zona de la cancha). Con $\omega_0(t)=\sum_{i\le t}p_i$,
+**Otsu** sobre la retroproyección (solo dentro de la mitad del jugador, sin su cara). Con $\omega_0(t)=\sum_{i\le t}p_i$,
 $\mu(t)=\sum_{i\le t} i\,p_i$ y $\mu_T=\sum_i i\,p_i$:
 
 $$\sigma_B^2(t)=\frac{[\mu_T\,\omega_0(t)-\mu(t)]^2}{\omega_0(t)\,[1-\omega_0(t)]},\qquad T^*=\arg\max_t\sigma_B^2(t)$$
@@ -32,16 +32,17 @@ marca bordes internos en vez de regiones: para la mano funciona mejor Otsu.
 """
 
 
-def procesar(fr: Frame, h_min, h_max, s_min, v_min, cr_min, cr_max, cb_min, cb_max, bloque, C):
+def procesar(fr: Frame, lado, h_min, h_max, s_min, v_min, cr_min, cr_max, cb_min, cb_max, bloque, C):
+    lado = int(lado)
     img, modelo = pl.preparar_imagen(fr.img, ESTADO.modelo_para(fr), ESTADO.config)
     _, suav = pl.preprocesar(img, ESTADO.config)
-    pose = cal.estimar_pose_cancha(cal.detectar_marcadores(img), modelo)
-    zona = seg.zona_busqueda(img.shape, pose, modelo).mascara if pose is not None else np.full(img.shape[:2], 255,
-                                                                                               np.uint8)
+    # Zona: la mitad del jugador sin su cara (las caras también son piel, pero no son la mano)
+    caras = seg.mascara_caras(img.shape, seg.detectar_caras(img))
+    zona = cv2.bitwise_and(seg.mascara_mitad(img.shape, lado), cv2.bitwise_not(caras))
     m_hsv = cv2.bitwise_and(umb.umbral_hsv(suav, (int(h_min), int(s_min), int(v_min)), (int(h_max), 255, 255)), zona)
     m_ycc = cv2.bitwise_and(umb.umbral_ycrcb(suav, (0, int(cr_min), int(cb_min)), (255, int(cr_max), int(cb_max))),
                             zona)
-    piel, origen = piel_para(suav, zona)
+    piel, origen = piel_para(suav, lado, zona)
     if piel is None:
         return (rgb(m_hsv), rgb(m_ycc), None, None, None, None, "No se encontró piel para el modelo.")
     retro = his.retroproyeccion(suav, piel, "combinada", 7, zona)
@@ -58,11 +59,13 @@ def procesar(fr: Frame, h_min, h_max, s_min, v_min, cr_min, cr_max, cb_min, cb_m
                               "Otsu sobre la retroproyección (normalizado)", "umbral t", "",
                               marcas_x={f"T* = {T}": T})
     # Comparación de métodos: con la verdad si la escena es sintética, si no con la máscara de Otsu
-    verdad = fr.verdad.get("mascara_piel") if fr.verdad else None
+    pieles_v = fr.verdad.get("mascaras_piel") if fr.verdad else None
+    verdad = pieles_v[0 if lado < 0 else 1] if pieles_v and len(pieles_v) > (lado > 0) else None
     if verdad is not None:
         verdad = pl.preparar_imagen(cv2.cvtColor(verdad, cv2.COLOR_GRAY2BGR), ESTADO.modelo_para(fr), ESTADO.config)[0]
         verdad = cv2.bitwise_and(np.where(verdad[..., 0] > 127, 255, 0).astype(np.uint8), zona)
-        ref, nombre_ref = verdad, "piel verdadera de la escena sintética (mano y antebrazo, dentro de la zona)"
+        ref, nombre_ref = verdad, ("piel verdadera de la mano y el antebrazo en la escena sintética (si Haar no "
+                                   "encontró la cara, cuenta como falsa piel)")
     else:
         ref, nombre_ref = m_otsu, "Otsu (no hay verdad en una imagen real)"
     filas = []
@@ -82,6 +85,8 @@ def construir(demo: gr.Blocks) -> None:
     with gr.Row():
         with gr.Column(scale=4):
             entrada = bloque_entrada()
+            jugador = gr.Radio([("Jugador 1 (izquierda)", -1), ("Jugador 2 (derecha)", 1)], value=-1,
+                               label="Mitad de la imagen")
             with gr.Accordion("Rango HSV", open=False):
                 h_min = gr.Slider(0, 179, value=umb.RANGO_HSV_PIEL[0][0], step=1, label="H mínimo")
                 h_max = gr.Slider(0, 179, value=umb.RANGO_HSV_PIEL[1][0], step=1, label="H máximo")
@@ -104,7 +109,7 @@ def construir(demo: gr.Blocks) -> None:
                 m_ad = gr.Image(label="Adaptativo", height=210)
             graf = gr.Image(label="Curva de varianza entre clases", height=280)
             md = gr.Markdown(latex_delimiters=LATEX)
-    params = [h_min, h_max, s_min, v_min, cr_min, cr_max, cb_min, cb_max, bloque, C]
+    params = [jugador, h_min, h_max, s_min, v_min, cr_min, cr_max, cb_min, cb_max, bloque, C]
     salidas = [m_hsv, m_ycc, retro, m_otsu, m_ad, graf, md]
     conectar(entrada, procesar, params, salidas)
     cargar_al_inicio(demo, entrada, procesar, params, salidas)
