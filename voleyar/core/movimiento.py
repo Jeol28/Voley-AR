@@ -4,9 +4,9 @@ El balón se devuelve con cualquier cosa que no sea el entorno. Para decidirlo, 
 frame pasa por los temas del curso, y cada uno cambia lo que ocurre en la partida:
 
 1. **Filtros.** El frame (reducido a 320 px) se suaviza antes de todo: el ruido del
-   sensor deja de parecer movimiento. Además, con los gradientes de Sobel se mide qué
-   tan **borroso** está cada objeto: lo que se mueve muy rápido sale borroso en la
-   cámara, y ese golpe sale más fuerte (``ancho_de_borde``).
+   sensor deja de parecer movimiento. Además, la **rapidez** de cada objeto se mide
+   siguiendo sus esquinas (derivadas de Sobel) con Lucas-Kanade sobre una pirámide
+   gaussiana: un golpe rápido sale más fuerte (``rapidez_por_puntos``).
 2. **Histogramas.** Se compara el histograma de gris del frame con el de referencia
    (distancia de Bhattacharyya). Si cambia de golpe es la luz (una lámpara, la
    exposición automática), no un objeto: el juego olvida el fondo y lo reaprende en
@@ -50,8 +50,8 @@ class ObjetoMovil:
     solidez: float  # área / área del casco convexo
     en_cara: bool = False  # descartado: es (casi todo) la cara de un jugador
     contorno: np.ndarray | None = None  # en la imagen de trabajo
-    ancho_borde: float = 0.0  # px de la imagen reducida que ocupa su borde (crece con el desenfoque)
-    borrosidad: float = 0.0  # 0 = nítido (lento), 1 = muy borroso (muy rápido)
+    desplazamiento: float = 0.0  # cuánto se movió desde el frame anterior, en fracción del ancho de la imagen
+    puntos: tuple | None = None  # (antes, ahora) de los puntos seguidos, en la imagen de trabajo
 
 
 @dataclass
@@ -100,6 +100,7 @@ class AnalizadorMovimiento:
         self.mog = cv2.createBackgroundSubtractorMOG2(history=self.historia, varThreshold=16, detectShadows=False)
         self.n = 0
         self.forma: tuple[int, int] | None = None
+        self.gris_previo: np.ndarray | None = None
 
     def aplicar(self, img_bgr: np.ndarray, config, caras=()) -> ResultadoMovimiento:
         h, w = img_bgr.shape[:2]
@@ -107,7 +108,7 @@ class AnalizadorMovimiento:
         hp = max(1, int(round(h * e)))
         vacia = np.zeros((h, w), np.uint8)
         peq = cv2.resize(img_bgr, (self.ancho, hp), interpolation=cv2.INTER_AREA)
-        gris_crudo = cv2.cvtColor(peq, cv2.COLOR_BGR2GRAY)  # sin suavizar: para medir lo borroso
+        gris = cv2.cvtColor(peq, cv2.COLOR_BGR2GRAY)  # para seguir los puntos de cada objeto
         # 1. Filtros
         peq = fil.suavizar(peq, config.suavizado, config.k_suavizado)
         res = ResultadoMovimiento(e, (h, w), vacia)
@@ -138,10 +139,12 @@ class AnalizadorMovimiento:
         fg = self.mog.apply(peq, learningRate=alfa)  # lo que MOG2 no explica con su modelo del fondo
         self.n += 1
         if self.n <= self.calentamiento:
+            self.gris_previo = gris
             return res
         res.calentando = False
         fondo = self.mog.getBackgroundImage()
         if fondo is None:
+            self.gris_previo = gris
             return res
         dif = cv2.absdiff(peq, fondo).max(axis=2)
         res.diferencia = dif
@@ -188,9 +191,11 @@ class AnalizadorMovimiento:
                     if dentro.mean() > 0.5:
                         obj.en_cara = True
                         break
-            obj.ancho_borde = ancho_de_borde(gris_crudo, comp)
-            obj.borrosidad = float(np.clip((obj.ancho_borde - config.borde_nitido)
-                                           / (config.borde_borroso - config.borde_nitido), 0.0, 1.0))
+            if self.gris_previo is not None and self.gris_previo.shape == gris.shape:
+                d, pares = rapidez_por_puntos(self.gris_previo, gris, comp)
+                obj.desplazamiento = d / self.ancho
+                if pares is not None:
+                    obj.puntos = (pares[0] / e, pares[1] / e)
             if obj.en_cara:
                 res.descartados_cara.append(obj)
             else:
@@ -206,33 +211,39 @@ class AnalizadorMovimiento:
             res.zona_golpe = etiquetas
         res.mascara = cv2.resize(np.where(etiquetas > 0, 255, 0).astype(np.uint8), (w, h),
                                  interpolation=cv2.INTER_NEAREST)
+        self.gris_previo = gris
         return res
 
 
-def ancho_de_borde(gris: np.ndarray, mascara: np.ndarray) -> float:
-    r"""Qué tan ancho es el borde de un objeto, en píxeles: mide el desenfoque por movimiento.
+def rapidez_por_puntos(previo: np.ndarray, actual: np.ndarray, mascara: np.ndarray):
+    r"""Cuánto se movió un objeto entre dos frames, siguiendo sus puntos con filtros.
 
-    Un borde nítido de contraste :math:`C` sube de golpe (gradiente máximo
-    :math:`\approx C`); si el objeto se movió durante la exposición, el borde se
-    reparte en :math:`w` píxeles y el gradiente máximo baja a :math:`\approx C / w`.
-    Así :math:`w \approx C / \max|\nabla I|`, con :math:`C` = percentil 95 − 5 del gris
-    alrededor del objeto y el gradiente de Sobel (normalizado). Se calcula por
-    separado en x y en y y se toma el mayor: un objeto que se mueve de lado solo se
-    desenfoca de lado.
+    1. **Esquinas de Shi-Tomasi** en el frame anterior, cerca del objeto: se buscan con
+       la matriz de estructura, hecha con las derivadas de **Sobel** suavizadas.
+    2. **Flujo de Lucas-Kanade piramidal**: cada punto se busca en el frame actual
+       resolviendo :math:`\nabla I \cdot \mathbf{v} = -I_t` en una ventana, sobre una
+       **pirámide gaussiana** (la imagen suavizada y reducida a la mitad varias veces)
+       para seguir también movimientos grandes.
+
+    Cada punto se sigue de ida y de vuelta: si no regresa a donde empezó (por ejemplo,
+    porque el objeto apareció de golpe y tapó lo que había), se descarta. Devuelve el
+    desplazamiento típico en píxeles por frame (percentil 75: algunos puntos son del
+    fondo y no se mueven) y los pares de puntos (antes, ahora) para dibujarlos.
     """
-    zona = cv2.dilate(mascara, np.ones((7, 7), np.uint8)) > 0
-    if zona.sum() < 20:
-        return 0.0
-    g = gris.astype(np.float32)
-    p5, p95 = np.percentile(g[zona], [5, 95])
-    C = float(p95 - p5)
-    if C < 15:  # sin contraste no hay borde que medir
-        return 0.0
-    anchos = []
-    for dx, dy in ((1, 0), (0, 1)):
-        d = np.abs(cv2.Sobel(g, cv2.CV_32F, dx, dy, ksize=3)) / 8.0
-        anchos.append(C / max(float(np.percentile(d[zona], 97)), 1e-3))
-    return float(max(anchos))
+    zona = cv2.dilate(mascara, np.ones((9, 9), np.uint8))
+    pts = cv2.goodFeaturesToTrack(previo, 40, 0.01, 3, mask=zona)
+    if pts is None or len(pts) < 3:
+        return 0.0, None
+    lk = dict(winSize=(15, 15), maxLevel=3)
+    nuevos, estado, _ = cv2.calcOpticalFlowPyrLK(previo, actual, pts, None, **lk)
+    # Ida y vuelta: un punto bien seguido regresa a donde empezó; si no, se descarta
+    vuelta, estado2, _ = cv2.calcOpticalFlowPyrLK(actual, previo, nuevos, None, **lk)
+    error = np.linalg.norm((vuelta - pts).reshape(-1, 2), axis=1)
+    ok = (estado.ravel() == 1) & (estado2.ravel() == 1) & (error < 1.0)
+    if ok.sum() < 3:
+        return 0.0, None
+    a, b = pts[ok].reshape(-1, 2), nuevos[ok].reshape(-1, 2)
+    return float(np.percentile(np.linalg.norm(b - a, axis=1), 75)), (a, b)
 
 
 @dataclass

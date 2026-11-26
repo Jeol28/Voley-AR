@@ -49,7 +49,7 @@ APODOS = {  # cortos: tienen que caber en el menú
 }
 QUE_HACE = {
     "calibracion": "El juego mide qué tan cerca está tu mano. ¡Acércala rápido a la cámara para hacer un remate!",
-    "filtros": "Si mueves la mano muy rápido, la cámara la ve borrosa. Un filtro lo nota, y el golpe sale más fuerte.",
+    "filtros": "El juego sigue puntitos de tu mano para saber qué tan rápido va. ¡Golpea rápido y el balón sale más fuerte!",
     "histogramas": "Si alguien prende o apaga una luz, el juego se da cuenta y no lo confunde con un golpe.",
     "umbralizacion": "El juego decide qué cambió lo suficiente para contar como movimiento. Lo blanco se está moviendo.",
     "morfologia": "El juego agranda lo que se mueve: con una zona de golpe más grande es más fácil alcanzar el balón.",
@@ -88,7 +88,7 @@ _SI_NO = _nombres((True, "sí"), (False, "no"))
 PARAMETROS: dict[str, Parametro] = {
     "calibracion": Parametro("Usar la calibración", (True, False), lambda j: j.config.usar_calibracion,
                              lambda j, v: j.accion("calibracion") if v != j.config.usar_calibracion else None, _SI_NO),
-    "filtros": Parametro("Fuerza por velocidad", (1.0, 2.0, 0.0), *_cfg("potencia_borroso"),
+    "filtros": Parametro("Fuerza por velocidad", (1.0, 2.0, 0.0), *_cfg("potencia_velocidad"),
                          _nombres((0.0, "apagada"), (1.0, "normal"), (2.0, "turbo"))),
     "histogramas": Parametro("Atento a la luz", (0.15, 0.2, 0.3, 0.45), *_cfg("umbral_luz"),
                              _nombres((0.15, "muchísimo"), (0.2, "mucho"), (0.3, "normal"), (0.45, "poco"))),
@@ -254,24 +254,24 @@ def _calibracion(juego, res, img):
 
 
 def _filtros(juego, res, img):
-    # Bordes de Sobel en naranja tenue: lo nítido tiene bordes finos, lo que se mueve rápido los tiene anchos
-    g = cv2.cvtColor(res.imagen, cv2.COLOR_BGR2GRAY)
-    borde = cv2.magnitude(cv2.Sobel(g, cv2.CV_32F, 1, 0), cv2.Sobel(g, cv2.CV_32F, 0, 1))
-    borde = vis.normalizar_u8(np.minimum(borde, np.percentile(borde, 99)))
-    out = _mezclar(_oscurecer(img, 0.45), np.full_like(img, vis.BGR_NARANJA), 0.6, (borde > 60).astype(np.uint8))
+    out = _oscurecer(img, 0.4)
     m = res.mov
     if m is not None and m.etiquetas is not None:
-        w = img.shape[1]
+        t = max(13, img.shape[0] // 30)
         for o in m.objetos:
-            lado = -1 if o.centroide[0] < w / 2 else 1
-            rapido = lado in juego.jugadores and juego.borrosidad(lado, o) >= 0.5
+            rapido = juego.rapidez(o) >= 0.5
             color = vis.BGR_VERDE if rapido else vis.BGR_NEUTRO
-            cv2.drawContours(out, [o.contorno], -1, color, 2, cv2.LINE_AA)
+            if o.puntos is not None:  # cada puntito seguido y hacia dónde se movió (exagerado para que se vea)
+                for a, b in zip(*o.puntos):
+                    fin = a + (b - a) * 3
+                    cv2.arrowedLine(out, tuple(np.int32(a)), tuple(np.int32(fin)), vis.BGR_NARANJA, 2, cv2.LINE_AA,
+                                    tipLength=0.3)
+                    cv2.circle(out, tuple(np.int32(a)), 3, color, -1, cv2.LINE_AA)
             x, y, _, _ = o.caja
-            vis.poner_texto(out, "borroso: ¡más fuerza!" if rapido else "nítido", (x, max(0, y - 26)),
-                            max(13, img.shape[0] // 30), color, fondo=vis.BGR_GRAFITO)
+            vis.poner_texto(out, "¡rápido: más fuerza!" if rapido else "lento", (x, max(0, y - 26)), t, color,
+                            fondo=vis.BGR_GRAFITO)
     lineas = [f"Golpes rapidísimos en esta partida: {juego.stats['rapidos']}",
-              "Mueve la mano tan rápido que se vea borrosa: el balón sale más fuerte y más lejos"]
+              "Las flechas naranjas muestran cuánto se movió cada puntito. Más largas = más rápido = golpe más fuerte"]
     return out, lineas
 
 

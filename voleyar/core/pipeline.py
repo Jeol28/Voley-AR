@@ -72,9 +72,9 @@ class ConfigPipeline:
     mov_t_min: int = 18  # mínimo del umbral de Otsu sobre |frame - fondo|
     mov_apertura: int = 3  # px (imagen de 320): quita el ruido suelto
     mov_cierre: int = 5  # px (imagen de 320): une el objeto
-    potencia_borroso: float = 1.0  # filtros: cuánto más fuerte sale un golpe borroso (rápido); 0 = apagado
-    borde_nitido: float = 2.6  # px (imagen de 320): ancho del borde de algo quieto
-    borde_borroso: float = 5.0  # px: desde aquí, desenfoque máximo (muy rápido)
+    potencia_velocidad: float = 1.0  # filtros: cuánto más fuerte sale un golpe rápido; 0 = apagado
+    rapidez_min: float = 0.5  # anchos de imagen por segundo desde los que un golpe empieza a ser rápido
+    rapidez_max: float = 1.6  # anchos de imagen por segundo para la fuerza máxima
     mov_alcance: int = 0  # px (imagen de 320): dilatación de cada objeto = zona de golpe más grande (0 = su tamaño)
     mov_area_min: float = 0.0015  # área mínima de un objeto en movimiento (fracción de la imagen)
     ignorar_caras_golpe: bool = True  # la cara (Viola-Jones) no golpea el balón

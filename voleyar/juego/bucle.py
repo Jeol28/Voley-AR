@@ -85,8 +85,7 @@ class EstadoJugador:
     lejos: bool = False  # lo que toca el balón está detrás (no cuenta)
     z_hist: list = field(default_factory=list)  # (t, Z cm) de la mano: su velocidad hacia la cámara
     vz: float | None = None  # cm/s (negativo = hacia la cámara)
-    potencia: float = 0.0  # filtros: qué tan borroso (rápido) viene lo que toca el balón
-    anchos: list = field(default_factory=list)  # anchos de borde recientes en su mitad: lo "normal" para él
+    potencia: float = 0.0  # filtros: qué tan rápido viene lo que toca el balón (0-1)
     c_prev: np.ndarray | None = None  # centro (px) de lo que tocó el balón en el frame anterior
     t_prev: float = 0.0
 
@@ -138,6 +137,7 @@ class Juego:
         self.owl = None
         self._t_prev = time.perf_counter()
         self.eventos_totales: list[str] = []
+        self.dt_frame = 1 / 30  # tiempo entre los dos últimos frames procesados
         self.lineas_tema: list[str] = []  # datos del tema que se está viendo (para el panel)
         self.graficas_tema: list = []
         # Lo que cada tema cambió en la partida (se muestra en su lente)
@@ -314,6 +314,7 @@ class Juego:
         ahora = time.perf_counter()
         dt = ahora - self._t_prev
         self._t_prev = ahora
+        self.dt_frame = dt
         self.fps = 0.9 * self.fps + 0.1 * (1.0 / max(dt, 1e-3)) if self.n_frame else 0.0
         self.n_frame += 1
         if self.pantalla in ("menu", "ajustes"):
@@ -532,36 +533,19 @@ class Juego:
             j.tipo = car.tipo_de_golpe(area_rel=o.area / (np.pi * r_px ** 2), solidez=o.solidez)
         else:
             j.tipo = None
-        # Filtros: lo borroso viene rápido y el golpe sale más fuerte
-        self._aprender_anchos(lado, res)
+        # Filtros: la rapidez de los puntos que se siguen decide la fuerza del golpe
         j.potencia = 0.0
         if toque.objeto is not None:
-            j.potencia = float(np.clip(self.borrosidad(lado, toque.objeto) * self.config.potencia_borroso, 0.0, 1.0))
+            j.potencia = float(np.clip(self.rapidez(toque.objeto) * self.config.potencia_velocidad, 0.0, 1.0))
         j.contacto = toque
         return toque, vel
 
-    def _aprender_anchos(self, lado: int, res: pl.ResultadoFrame) -> None:
-        """Guarda los anchos de borde de lo que se mueve en la mitad del jugador (los últimos ~5 s)."""
-        if res.mov is None:
-            return
-        w = res.imagen.shape[1]
-        j = self.jugadores[lado]
-        for o in res.mov.objetos:
-            if o.ancho_borde > 0 and (o.centroide[0] < w / 2) == (lado < 0):
-                j.anchos.append(o.ancho_borde)
-        del j.anchos[:-150]
-
-    def borrosidad(self, lado: int, obj) -> float:
-        """Qué tan borroso está ``obj`` comparado con lo normal para este jugador (0 = como siempre, 1 = 2.5 veces).
-
-        Cada cámara, luz y mano tienen bordes más o menos suaves; por eso no se usa un
-        ancho fijo sino la mediana de lo que se ha visto en su mitad en los últimos segundos.
-        """
-        j = self.jugadores[lado]
-        if len(j.anchos) < 20 or obj.ancho_borde <= 0:
-            return 0.0
-        base = max(float(np.median(j.anchos)), 1.0)
-        return float(np.clip((obj.ancho_borde / base - 1.5) / 1.0, 0.0, 1.0))  # 1.5× lo normal empieza, 2.5× es el máximo
+    def rapidez(self, obj) -> float:
+        """Qué tan rápido va ``obj``, de 0 (lento) a 1 (muy rápido), en anchos de imagen por segundo."""
+        dt = max(self.dt_frame, 1 / 60)
+        v = obj.desplazamiento / dt
+        c = self.config
+        return float(np.clip((v - c.rapidez_min) / (c.rapidez_max - c.rapidez_min), 0.0, 1.0))
 
     @staticmethod
     def _mano_en(r: pl.ResultadoMano, obj) -> bool:

@@ -246,38 +246,29 @@ def test_la_dilatacion_agranda_la_zona_de_golpe():
     assert np.count_nonzero(gigante.zona_golpe) > np.count_nonzero(gigante.etiquetas)
 
 
-def _desenfoque(img, largo):
-    """Desenfoque por movimiento horizontal (lo que hace la cámara con algo que pasa rápido)."""
-    k = np.zeros((largo, largo), np.float32)
-    k[largo // 2, :] = 1.0 / largo
-    return cv2.filter2D(img, -1, k)
+_TEXTURA = np.random.default_rng(9).integers(0, 256, (12, 12, 3)).astype(np.uint8)
 
 
-@pytest.mark.parametrize("color", [(40, 200, 60), (150, 170, 200), (90, 120, 170)])
-def test_el_ancho_del_borde_crece_con_el_desenfoque(color):
-    anchos = []
-    for largo in (1, 9, 25, 41):
-        img = _cuarto()
-        cv2.rectangle(img, (280, 140), (380, 230), color, -1)  # se mueve de lado: solo se desenfoca de lado
-        img = _desenfoque(img, largo) if largo > 1 else img
-        peq = cv2.resize(img, (320, 180), interpolation=cv2.INTER_AREA)
-        m = np.zeros((180, 320), np.uint8)
-        m[70:115, 140 - largo // 4:190 + largo // 4] = 255
-        anchos.append(movi.ancho_de_borde(cv2.cvtColor(peq, cv2.COLOR_BGR2GRAY), m))
-    assert anchos == sorted(anchos) and anchos[0] < 2.6 and anchos[-1] > 5.0
+def _con_objeto_texturado(img, x, y, lado=70):
+    """Un objeto con dibujo (como una mano o un cuaderno con letras): tiene esquinas que seguir."""
+    out = img.copy()
+    tex = cv2.resize(_TEXTURA, (lado, lado), interpolation=cv2.INTER_NEAREST)
+    x0, y0, x1, y1 = max(0, x), max(0, y), min(out.shape[1], x + lado), min(out.shape[0], y + lado)
+    if x1 > x0 and y1 > y0:
+        out[y0:y1, x0:x1] = tex[y0 - y:y1 - y, x0 - x:x1 - x]
+    return out
 
 
-def test_lo_borroso_es_rapido_y_el_golpe_sale_mas_fuerte():
-    def ultimo(desenfoque):
-        frames = _aprendido()
-        for k in range(4):
-            f = _con_bloque(_cuarto(), 100 + 12 * k, 120, lado=70)
-            frames.append((_desenfoque(f, desenfoque) if desenfoque else f, ()))
-        res, _ = _analizar(frames)
-        return max(res.objetos, key=lambda o: o.area)
+@pytest.mark.parametrize("paso_px", [3, 12, 30])
+def test_los_puntos_seguidos_miden_cuanto_se_movio_el_objeto(paso_px):
+    frames = _aprendido() + [(_con_objeto_texturado(_cuarto(), 100 + paso_px * k, 120), ()) for k in range(5)]
+    res, _ = _analizar(frames)
+    o = max(res.objetos, key=lambda o: o.area)
+    esperado = paso_px / W  # fracción del ancho de la imagen por frame
+    assert o.puntos is not None and abs(o.desplazamiento - esperado) < max(0.35 * esperado, 0.003)
 
-    lento, rapido = ultimo(0), ultimo(31)
-    assert lento.borrosidad < 0.2 and rapido.borrosidad > 0.5
+
+def test_un_golpe_rapido_sale_mas_fuerte():
     p = Partida(modo="2j")
     p.balon.pos = np.array([-6.0, 0.0, 6.0])
     normal = p.velocidad_golpe(EntradaJugador(tipo="golpe", potencia=0.0), JUGADOR)
@@ -287,23 +278,21 @@ def test_lo_borroso_es_rapido_y_el_golpe_sale_mas_fuerte():
     assert np.allclose(*bloqueo)  # el bloqueo no cambia con la velocidad
 
 
-def test_en_la_partida_un_golpe_borroso_sale_rapidisimo():
+@pytest.mark.parametrize("paso_px,rapido", [(2, False), (35, True)])
+def test_en_la_partida_un_golpe_rapido_sale_rapidisimo(paso_px, rapido):
     from voleyar.juego.navegador import paso_navegador
 
     j = _juego()
     for _ in range(25):
         paso_navegador(j, _cuarto())
-    for k in range(30):  # algo nítido moviéndose en la mitad del jugador 1, lejos del balón: lo normal
-        paso_navegador(j, _con_bloque(_cuarto(), 20 + 3 * (k % 10), 250, lado=60))
-    assert "golpe" not in j.eventos_totales and len(j.jugadores[-1].anchos) >= 20
     c, r = _balon(j)
-    for k in range(12):  # ahora llega borroso, muy rápido, sobre el balón
-        x, y = int(c[0] - 35 + (k % 3 - 1) * 6), int(c[1] - 35)
-        paso_navegador(j, _desenfoque(_con_bloque(_cuarto(), max(0, x), max(0, y), 70), 41))
+    x0 = int(c[0] - 35 - paso_px * 6)
+    for k in range(12):  # el objeto llega al balón moviéndose paso_px por frame
+        paso_navegador(j, _con_objeto_texturado(_cuarto(), x0 + paso_px * k, int(c[1] - 35)))
         if "golpe" in j.eventos_totales:
             break
-    assert "golpe" in j.eventos_totales and "rapidísimo" in j.partida.marcas[-1].texto
-    assert j.stats["rapidos"] == 1
+    assert "golpe" in j.eventos_totales
+    assert ("rapidísimo" in j.partida.marcas[-1].texto) == rapido
 
 
 def test_el_juego_aguanta_que_el_navegador_cambie_la_resolucion_del_video():

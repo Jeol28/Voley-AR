@@ -167,9 +167,11 @@ frame → suavizado (filtros) → histograma de gris vs. referencia (Bhattachary
 
 - **Transformers:** `cercania` compara la mediana de la disparidad de Depth Anything dentro del objeto con la de la
   escena (normalizada por el rango p5-p95). Por debajo de `cercania_min` (0.10) el toque no cuenta.
-- **Filtros:** `ancho_de_borde` estima el desenfoque por movimiento como :math:`w ≈ C / \max|∇I|` (Sobel en x
-  y en y, se toma el mayor). `Juego.borrosidad` lo compara con la mediana de lo visto en la mitad del jugador: desde
-  1.5× empieza a sumar potencia y en 2.5× llega al máximo (golpe más lejos y más bajo).
+- **Filtros:** `rapidez_por_puntos` busca esquinas de Shi-Tomasi (matriz de estructura con derivadas de Sobel) cerca
+  del objeto en el frame anterior y las sigue con Lucas-Kanade piramidal (pirámide gaussiana), con comprobación de ida
+  y vuelta (error < 1 px). El percentil 75 del desplazamiento, dividido por el tiempo entre frames, da la rapidez en
+  anchos de imagen por segundo: desde 0.5 empieza a sumar potencia y en 1.6 llega al máximo. (Antes se intentó medir
+  el desenfoque por movimiento, pero una webcam con buena luz casi no difumina.)
 - **Calibración:** la velocidad `vz` de la mano hacia la cámara es la pendiente de `Z = f·W/w` en los últimos
   0.3 s. Con `vz ≤ −60 cm/s` el golpe es un remate.
 - **Caracterización:** `tipo_de_golpe` usa los dedos estables si la mano reconocida es la que toca (sus cajas se

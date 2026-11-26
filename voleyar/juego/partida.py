@@ -193,7 +193,7 @@ class Partida:
             self.ia.nueva_jugada()
         from voleyar.core.caracterizacion import TIPOS_GOLPE
 
-        nombre = TIPOS_GOLPE.get(e.tipo, e.gesto) + (" ¡rapidísimo!" if e.potencia >= 0.5 else "")
+        nombre = TIPOS_GOLPE.get(e.tipo, e.gesto) + (" ¡rapidísimo!" if e.potencia >= 0.5 and e.tipo != "bloqueo" else "")
         self.marcas.append(MarcaGolpe(self.balon.pos.copy(), True, self.t, nombre))
         self.ultimo_tipo = {"quien": quien, "tipo": e.tipo, "potencia": e.potencia}
         if self.estado == "saque":
