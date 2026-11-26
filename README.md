@@ -5,21 +5,22 @@ Autor: **Jorge Enrique Olaya Liévano** · Ingeniería de Sistemas, Pontificia U
 
 Voley AR es un juego de voleibol en realidad aumentada para **dos jugadores frente a una misma cámara web** (o uno
 contra la IA). No hay nada impreso ni ningún objeto: la cancha, la red y el balón se dibujan sobre la imagen de la
-cámara, y lo único físico son las manos. La mitad izquierda de la imagen es del jugador 1, la derecha del jugador 2, y
-la red queda en el centro. Cada uno golpea el balón con su mano para pasarlo al otro lado, hasta 15 puntos.
+cámara, y lo único físico son las manos de los jugadores (o lo que usen para golpear). La mitad izquierda de la imagen
+es del jugador 1, la derecha del jugador 2, y la red queda en el centro. Cada uno devuelve el balón al otro lado, hasta
+15 puntos.
 
-Cada tema del curso cumple una función real en el juego. La **calibración** de la cámara es la que une lo real con lo
-virtual:
-
-- corrige la distorsión de la lente;
-- define la cámara virtual con la que se dibuja la cancha;
-- permite medir a qué distancia de la cámara está cada mano (`Z = f·W/w`, con el tamaño de la palma). Con esa
-  distancia se sabe si la mano está en el plano de juego.
+**Cada tema del curso decide algo de la partida** (no hay un laboratorio aparte): la calibración mide la distancia de
+la mano y detecta el remate, los filtros miden la velocidad del golpe, los histogramas eligen el color del balón, la
+umbralización y la segmentación deciden qué se mueve y qué no, la morfología fija la zona de golpe, la caracterización
+lee los gestos de la mano y el tipo de golpe, y los transformers descartan lo que pasa lejos. Cada tema se puede ver
+en vivo durante la partida ([ver tabla](#cada-tema-del-curso-dentro-del-juego)).
 
 Los transformers se usan solo en inferencia, con pesos públicos de Hugging Face (no se entrena ni se etiqueta nada).
 
-**Pruébalo en línea:** [huggingface.co/spaces/Jeol28/Vision](https://huggingface.co/spaces/Jeol28/Vision)
-(Gradio con ZeroGPU y video por WebRTC).
+**Versión actual: v2.5.0.** El juego se usa en local (`python app.py` o `python jugar.py`). Hay una versión en línea en
+[huggingface.co/spaces/Jeol28/Vision](https://huggingface.co/spaces/Jeol28/Vision) (Gradio con ZeroGPU y video por
+WebRTC), pero corre una versión anterior y su video necesita un servidor TURN (ver
+[Despliegue](#despliegue-en-hugging-face-spaces-zerogpu)).
 
 ## Capturas
 
@@ -60,8 +61,18 @@ Los transformers se usan solo en inferencia, con pesos públicos de Hugging Face
   | Mano abierta (4-5 dedos) | **Toque suave** | alto y corto |
   | Un objeto grande y compacto (un cuaderno) | **Bloqueo** | rebota corto, detrás de la red |
 
-- **Gestos** (mano quieta medio segundo; un anillo alrededor de la mano se va llenando): ✋ mano abierta = sacar,
-  pulgar e índice en L = pausa / seguir, ☝ un dedo arriba = revancha, ✌ dos dedos juntos = cambiar lo que se ve.
+  Además, si lo que golpea viene muy rápido, el golpe sale **"¡rapidísimo!"**: más lejos y más bajo.
+
+- **Gestos** (mano quieta medio segundo; un anillo alrededor de la mano se va llenando):
+
+  | Gesto | Qué hace |
+  |---|---|
+  | ✋ Mano abierta | sacar |
+  | Pulgar e índice en L | pausa / seguir |
+  | ☝ Un dedo arriba (también 👍) | revancha, al terminar |
+  | ✌ Dos dedos juntos | cambiar el tema que se ve |
+
+- **El balón cambia de color** para resaltar siempre sobre el cuarto (el que menos aparece en la imagen).
 - **Plano de juego:** al empezar se mide a qué distancia de la cámara está la mano de cada jugador; si golpea solo con
   la mano reconocida (sin moverla), el golpe vale si la mano está en ese plano.
 - **Reglas:** un toque por lado, un bote permitido, fuera o red es punto para el otro. Gana quien llegue a 15.
@@ -140,10 +151,17 @@ python app.py                      # http://127.0.0.1:7860 (o el Space en línea
 2. Pongan la cámara frente a ustedes, a unos 50-75 cm: el jugador 1 a la izquierda y el jugador 2 a la derecha.
 3. Se juega de una, sin calibrar nada: muevan la mano (o un cuaderno, o lo que quieran) sobre el balón para
    devolverlo. Lo quieto es parte del cuarto y no golpea.
-4. El color de la piel se aprende solo: mientras no hay histograma propio se usa el rango fijo de YCrCb, y en cuanto
+4. Para sacar, abran la mano quieta medio segundo (o golpeen el balón). Con la L de pulgar e índice se pausa, y al
+   terminar un dedo arriba pide la revancha. También hay botones: **Pausa / Seguir**, **Reiniciar**, **Revancha** y
+   **Menú principal**.
+5. El color de la piel se aprende solo: mientras no hay histograma propio se usa el rango fijo de YCrCb, y en cuanto
    una mano se confirma (forma + movimiento + histéresis) sus píxeles construyen los histogramas H-S y Cr-Cb de ese
    jugador, que se refrescan cada 30 frames. Durante los primeros segundos también se mide la distancia de cada mano
-   (su plano de juego). Al terminar, **Revancha** o **Menú principal**.
+   (su plano de juego).
+
+En la web, junto a los botones − / + hay un botón **Guardar foto de mi mano** (solo en local): guarda el frame, la
+silueta de cada mano y lo que el juego leyó en `capturas_mano/`, una carpeta que no entra al repositorio. Sirve para
+afinar los gestos con fotos reales.
 
 En la ventana todo se elige con el mouse o con la tecla que aparece en cada botón. Atajos durante la partida:
 
@@ -193,30 +211,36 @@ sube al Space con hardware `zero-a10g`. Diferencias de la versión en línea:
 - **ZeroGPU:** `import spaces` va antes que torch (`voleyar/entorno.py`). Los modelos se cargan al arrancar y la
   inferencia va en funciones `@spaces.GPU` que solo reciben y devuelven datos (`estimar_profundidad`,
   `detectar_manos`). En local el decorador no hace nada.
-- **Estado por sesión:** la calibración y la piel de cada visitante viven en su `gr.State`, no en el disco del servidor.
-  La calibración se descarga como `camara.json`.
+- **Estado por sesión:** el juego, la calibración y la piel de cada visitante viven en un registro de sesiones en
+  memoria (`voleyar/ui/sesiones.py`), no en el disco del servidor. La calibración se descarga como `camara.json`.
 - **Jugar en el navegador por video (WebRTC):** la página usa el componente `WebRTC` de
   [fastrtc](https://github.com/gradio-app/fastrtc). El navegador transmite la cámara como un video continuo y
   comprimido (como una videollamada, no como fotos); cada frame pasa por el mismo `Juego.paso` y el video del juego
   vuelve por el mismo canal a ~30 FPS. Si el servidor se atrasa, se descartan los frames viejos. Unos botones
   reemplazan a las teclas; el video y los botones comparten el juego de cada visitante mediante una clave de sesión
   (`voleyar/ui/sesiones.py`). La calibración de la cámara también va por video.
-- **Servidor TURN:** en un Space, WebRTC necesita un relé TURN. fastrtc lo pide a Hugging Face con un token guardado
-  como secreto `HF_TOKEN` del Space (*Settings → Variables and secrets*). En local no hace falta.
+- **Servidor TURN:** en un Space, WebRTC necesita un relé TURN para que el video conecte. El juego lo busca en este
+  orden: Cloudflare (secretos `CLOUDFLARE_TURN_KEY_ID` y `CLOUDFLARE_TURN_KEY_API_TOKEN` del Space), Hugging Face (con
+  un secreto `HF_TOKEN`) y, si no hay ninguno, solo STUN, que no basta detrás de la red del Space. **Hoy el Space no
+  tiene ninguno configurado**, así que su video no conecta. En local no hace falta.
+- **Depth Anything en línea:** con ZeroGPU cada llamada pide la GPU, así que en el Space solo se calcula al mirar la
+  lente de transformers; en local corre en un hilo aparte.
 
 ## Estrategia de ramificación
 
 Se usó un flujo tipo *Git Flow* simplificado:
 
-- **`main`**: versiones estables y entregables (tags `v1.0.0`, `v1.1.0`, `v2.0.0`, `v2.1.0`, `v2.2.0`, `v2.4.0` y `v2.5.0`). Solo recibe merges desde `develop`.
+- **`main`**: versiones estables y entregables (tags `v1.0.0`, `v1.1.0`, `v2.0.0`, `v2.1.0`, `v2.2.0`, `v2.2.1`, `v2.3.0`, `v2.3.1`, `v2.4.0` y `v2.5.0`). Solo recibe merges desde `develop`.
 - **`develop`**: rama de integración. Cada tema entra cuando sus pruebas pasan.
 - **`feature/<tema>`**: una rama por módulo. Para la v1: `feature/calibracion`, `feature/filtros`,
   `feature/histogramas`, `feature/umbralizacion`, `feature/morfologia`, `feature/segmentacion`,
   `feature/caracterizacion`, `feature/transformers`, `feature/juego`, `feature/ui` y `feature/docs`. Después vinieron
   `feature/despliegue` (v1.1.0), `feature/multijugador` (v2.0.0), `feature/interfaz-juego` (v2.1.0),
-  `feature/vistas-en-juego` (v2.2.0), `feature/turn-cloudflare` y `feature/deteccion-robusta` (v2.4.0) y
-  `feature/golpe-por-movimiento` (v2.5.0: golpe con cualquier objeto, cada tema decide algo de la partida y gestos). Cada rama sale de `develop`, se trabaja con commits
-  pequeños ([Conventional Commits](https://www.conventionalcommits.org/es/)) y vuelve con `git merge --no-ff`.
+  `feature/vistas-en-juego` (v2.2.0), `feature/rendimiento-web` (v2.2.1), `feature/video-webrtc` (v2.3.0: video por
+  WebRTC), `fix/turn-y-pruebas` (v2.3.1), `feature/turn-cloudflare` y `feature/deteccion-robusta` (v2.4.0),
+  `feature/golpe-por-movimiento` (v2.5.0: golpe con cualquier objeto, cada tema decide algo de la partida y gestos) y
+  `feature/docs-v2.5`. Cada rama sale de `develop`, se trabaja con commits pequeños
+  ([Conventional Commits](https://www.conventionalcommits.org/es/)) y vuelve con `git merge --no-ff`.
 
 ```mermaid
 gitGraph
@@ -300,6 +324,27 @@ gitGraph
     checkout main
     merge develop tag: "v2.2.0"
     checkout develop
+    branch feature/rendimiento-web
+    commit id: "perf: menos carga en el Space"
+    checkout develop
+    merge feature/rendimiento-web
+    checkout main
+    merge develop tag: "v2.2.1"
+    checkout develop
+    branch feature/video-webrtc
+    commit id: "feat: cámara por WebRTC"
+    checkout develop
+    merge feature/video-webrtc
+    checkout main
+    merge develop tag: "v2.3.0"
+    checkout develop
+    branch fix/turn-y-pruebas
+    commit id: "fix: WebRTC sin TURN"
+    checkout develop
+    merge fix/turn-y-pruebas
+    checkout main
+    merge develop tag: "v2.3.1"
+    checkout develop
     branch feature/turn-cloudflare
     commit id: "feat: lentes en la escena y espejo"
     checkout develop
@@ -318,6 +363,10 @@ gitGraph
     commit id: "fix: mano con reloj (fotos reales)"
     checkout develop
     merge feature/golpe-por-movimiento
+    branch feature/docs-v2.5
+    commit id: "docs: README de la v2.5.0"
+    checkout develop
+    merge feature/docs-v2.5
     checkout main
     merge develop tag: "v2.5.0"
 ```
@@ -330,7 +379,7 @@ El código sigue una **arquitectura en capas**: cada capa solo llama a la de aba
 flowchart TB
     subgraph Presentacion["Presentación"]
         UI["voleyar/ui · Gradio<br/>juego_web: menús, calibración y partida"]
-        BUCLE["voleyar/juego/bucle.py + menus.py + vistas.py<br/>ventana OpenCV · navegador.py"]
+        BUCLE["voleyar/juego/bucle.py + menus.py + vistas.py + gestos.py<br/>ventana OpenCV · navegador.py"]
     end
     subgraph Juego["Dominio del juego"]
         FIS["fisica.py<br/>gravedad, rebotes, red"]
@@ -341,6 +390,7 @@ flowchart TB
     subgraph Core["voleyar/core · funciones puras (imagen in → imagen/datos out)"]
         CAL["calibracion"] --- FIL["filtros"] --- HIS["histogramas"] --- UMB["umbralizacion"]
         MOR["morfologia"] --- SEG["segmentacion"] --- CAR["caracterizacion"] --- TRF["transformers_models"]
+        MOV["movimiento.py · qué se mueve y qué toca el balón"]
         PIPE["pipeline.py · encadena todo, una mano por mitad"]
     end
     subgraph Utils["voleyar/utils · infraestructura"]
@@ -353,7 +403,8 @@ flowchart TB
     BUCLE --> REN
     PAR --> FIS
     PAR --> IA
-    PIPE --> CAL & FIL & HIS & UMB & MOR & SEG & CAR
+    PIPE --> CAL & FIL & HIS & UMB & MOR & SEG & CAR & MOV
+    MOV --> FIL & HIS & UMB & MOR
     BUCLE --> TRF
     UI --> TRF
     Core --> Utils
@@ -361,8 +412,9 @@ flowchart TB
 
 - **`core/`** no importa nada de Gradio ni abre ventanas: recibe arreglos NumPy y devuelve arreglos o dataclasses, así
   que se prueba con escenas sintéticas de verdad conocida.
-- **`juego/`** contiene reglas, física y render. `partida.py` no sabe de cámaras: recibe una `EntradaJugador` por mano
-  (rayo, punto en el plano, velocidad, gesto y si la mano está en el plano de juego).
+- **`juego/`** contiene reglas, física, render, lentes por tema (`vistas.py`) y gestos (`gestos.py`). `partida.py` no
+  sabe de cámaras: recibe una `EntradaJugador` por jugador (rayo, punto, velocidad, si algo toca el balón, el tipo de
+  golpe y su potencia).
 - **`ui/`**, **`juego/bucle.py`** y **`juego/navegador.py`** son presentaciones del **mismo** pipeline
   (`core/pipeline.py::procesar_frame`).
 - **`utils/`** agrupa la infraestructura: cámara (AVFoundation), `config/camara.json`, texto con tildes sobre OpenCV y
@@ -372,44 +424,59 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    A["Frame BGR<br/>1280×720"] --> B["Reducción a 960 px<br/>+ corrección de distorsión"]
+    A["Frame de la cámara<br/>(espejo)"] --> B["Reducción a 640-960 px<br/>+ corrección de distorsión"]
     B --> V["Cámara virtual<br/>(misma K)"]
     B --> C["Caras: Viola-Jones<br/>una por mitad, con memoria"]
-    B --> D["CLAHE + suavizado"]
-    D --> E1["Mitad izq.: piel J1<br/>retroproyección"]
-    D --> E2["Mitad der.: piel J2<br/>retroproyección"]
-    E1 & E2 --> F["Otsu + apertura/cierre"]
-    F --> G["Región que entra por abajo<br/>watershed mano-cara"]
-    C --> G
-    G --> I["Corte mano-brazo<br/>transformada de distancia"]
-    I --> J["Casco, defectos<br/>dedos, punta"]
-    J --> K["Z = f·W/w (palma)<br/>rayo ∩ plano de la red"]
-    V --> K
-    K --> L["Golpe, física, IA"]
-    L --> M["Render AR<br/>piso, red, balón"]
-    D -. cada 8 frames, hilo aparte .-> N["Depth Anything V2<br/>¿mano delante de la cara?"]
-    N -.-> L
+    subgraph Mov["Qué se mueve (320 px) · movimiento.py"]
+        M1["Suavizado"] --> M2["Histograma de la luz<br/>¿cambio brusco?"]
+        M2 --> M3["MOG2<br/>modelo del fondo"]
+        M3 --> M4["Otsu sobre<br/>|frame − fondo|"]
+        M4 --> M5["Apertura, cierre<br/>y dilatación"]
+        M5 --> M6["Componentes conexas<br/>sin la cara"]
+        M6 --> M7["Velocidad: esquinas<br/>+ Lucas-Kanade"]
+    end
+    B --> M1
+    C --> M6
+    subgraph Mano["La mano de cada mitad"]
+        H1["Piel: YCrCb o<br/>retroproyección + Otsu"] --> H2["Región de la mano<br/>(une a través del reloj)"]
+        H2 --> H3["Corte mano-brazo<br/>watershed mano-cara"]
+        H3 --> H4["Dedos: casco convexo<br/>y círculos"]
+        H4 --> H5["Z = f·W/w · gestos<br/>tipo de golpe"]
+    end
+    B --> H1
+    C --> H2
+    M6 --> T["¿Qué toca el balón?"]
+    M7 --> T
+    H5 --> T
+    D["Depth Anything V2<br/>(hilo aparte)"] -.-> T
+    T --> L["Golpe, física, IA"]
+    L --> R["Render AR<br/>piso, red, balón del color elegido"]
+    V --> R
 ```
 
-El pipeline de las dos manos tarda **≈ 20-25 ms por frame** a 960 px (la cascada Haar corre cada 3 frames).
+Un frame completo (las dos manos y el movimiento) tarda **≈ 13 ms a 640 px** en un Mac con Apple Silicon; el análisis
+del movimiento son ~1.5 ms de eso.
 
 ### Módulos y su papel en el juego
 
 | Módulo | Qué hace | Cómo participa en el juego |
 |---|---|---|
-| `core/calibracion.py` | Pinhole, captura guiada, `cv2.calibrateCamera` (Zhang), corrección de distorsión, cámara virtual, `Z = f·W/w`, rayo ∩ plano; ArUco + `solvePnP` de la v1 (ya no lo usa el juego). | Hace coincidir las manos reales con la cancha virtual y mide la distancia de cada mano. Sin la `K` real, la distancia y la geometría salen mal. |
-| `core/filtros.py` | Gaussiano, mediana, bilateral; Sobel y Canny; convolución manual vs. `filter2D`. | Limpia el ruido de la cámara antes de segmentar la piel. |
-| `core/histogramas.py` | Histogramas H-S y Cr-Cb, retroproyección, ecualización, CLAHE. | Un modelo de piel **por jugador** (tonos distintos) y compensación de la luz. |
-| `core/umbralizacion.py` | Rangos HSV/YCrCb, Otsu manual (curva σ²_B) vs. OpenCV, adaptativo, métricas. | Convierte la retroproyección de cada mitad en la máscara de la mano. |
-| `core/morfologia.py` | Erosión, dilatación, apertura, cierre, gradiente; versiones manuales; relleno de huecos. | Quita los puntos sueltos sin pegar los dedos (cierre de 5 px). |
+| `core/calibracion.py` | Pinhole, captura guiada, `cv2.calibrateCamera` (Zhang), corrección de distorsión, cámara virtual, `Z = f·W/w`, rayo ∩ plano; ArUco + `solvePnP` de la v1 (ya no lo usa el juego). | Hace coincidir las manos reales con la cancha virtual, mide la distancia de cada mano y su velocidad hacia la cámara (el **remate**). |
+| `core/filtros.py` | Gaussiano, mediana, bilateral; Sobel y Canny; convolución manual vs. `filter2D`. | Quita el ruido antes de buscar piel y movimiento. Las derivadas de Sobel también sirven para seguir esquinas y medir la **velocidad** del golpe. |
+| `core/histogramas.py` | Histogramas H-S, Cr-Cb y de tono, retroproyección, ecualización, CLAHE. | Elige el **color del balón** (el que menos hay en el cuarto), aprende la piel de cada jugador y compensa la luz. |
+| `core/umbralizacion.py` | Rangos HSV/YCrCb, Otsu manual (curva σ²_B) vs. OpenCV, adaptativo, métricas. | Decide **qué se mueve** (Otsu sobre \|frame − fondo\|) y separa la piel de la mano. |
+| `core/morfologia.py` | Erosión, dilatación, apertura, cierre, gradiente; versiones manuales; relleno de huecos. | Limpia las máscaras y, con una dilatación, fija el tamaño de la **zona de golpe**. |
 | `core/segmentacion.py` | Mitades por jugador, caras (Viola-Jones), contornos, corte mano-brazo, watershed con marcadores mano-cara. | Aísla la mano de cada jugador aunque pase por delante de su cara. |
-| `core/caracterizacion.py` | Área, perímetro, centroide, circularidad, solidez, excentricidad, Hu; casco convexo y defectos; dedos; velocidad. | Decide el gesto (remate, golpe, toque o bloqueo), el punto de golpe y la velocidad de la mano. |
-| `core/transformers_models.py` | Depth Anything V2 y OWLv2 (carga única, MPS/CPU/ZeroGPU), comparación clásico vs. transformer. | Verifica que la mano esté delante del cuerpo; detector alternativo (tecla `O`). |
+| `core/movimiento.py` | Cadena del movimiento: suavizado → histograma de la luz → MOG2 → Otsu → morfología → componentes conexas sin la cara; esquinas + Lucas-Kanade; cercanía con Depth Anything. | Decide **qué toca el balón**, aunque no sea una mano, y lo que está quieto es entorno. |
+| `core/caracterizacion.py` | Área, perímetro, centroide, circularidad, solidez, excentricidad, Hu; casco convexo y defectos; dedos por círculos alrededor de la palma; validación de la mano; histéresis. | Lee los **gestos**, decide el **tipo de golpe** (puño, mano abierta, objeto grande) y si una región es de verdad una mano. |
+| `core/transformers_models.py` | Depth Anything V2 y OWLv2 (carga única, MPS/CPU/ZeroGPU), comparación clásico vs. transformer. | Solo golpea lo que está **cerca** de la cámara; detector alternativo de manos (tecla `O`). |
 | `core/pipeline.py` | Encadena todo para un frame y las dos mitades, y mide cada etapa. | Única puerta de entrada del juego y de la UI al core. |
 | `juego/fisica.py` | Partícula con gravedad de juego, rebotes, tiros que pasan la red. | El balón. |
 | `juego/ia_rival.py` | Predice dónde interceptar y devuelve con error; 3 dificultades. | El rival en modo `ia`. |
-| `juego/partida.py` | Reglas para dos humanos o humano vs. IA, marcador a 15. | La lógica de la partida, probada sin cámara. |
-| `juego/render_ar.py` | Piso en perspectiva, red frontal en malla, balón sombreado (`f·R/z_c`), sombra, HUD. | Lo que ven los jugadores. |
+| `juego/partida.py` | Reglas para dos humanos o humano vs. IA, marcador, saque, tipos de golpe y su vuelo. | La lógica de la partida, probada sin cámara. |
+| `juego/gestos.py` | Clasifica la mano (abierta, L, un dedo, ✌) y la sostiene medio segundo con un anillo de progreso. | Sacar, pausar, pedir revancha y cambiar de tema sin tocar el teclado. |
+| `juego/vistas.py` | Una lente por tema, con su ajuste y su panel de datos fuera de la cancha. | Ver cómo funciona cada tema sin dejar de jugar. |
+| `juego/render_ar.py` | Piso en perspectiva, red frontal en malla, balón sombreado (`f·R/z_c`) de un solo color, sombra, HUD. | Lo que ven los jugadores. |
 
 ### Decisiones de diseño que salieron de las pruebas
 
@@ -422,7 +489,8 @@ El pipeline de las dos manos tarda **≈ 20-25 ms por frame** a 960 px (la casca
 - **Radio efectivo de la palma (3.5 cm).** La apertura morfológica se come el borde de la palma: con 4 cm, `Z` salía
   15 % alta. Con 3.5 cm el error en las escenas sintéticas quedó entre -4 % y +4 %.
 - **Cierre de 5 px.** Con 9 px los dedos juntos se pegaban y el conteo fallaba.
-- **Depth Anything cada N frames, en un hilo.** Tarda unos 110 ms en MPS; el bucle nunca lo espera.
+- **Depth Anything cada N frames, en un hilo.** Tarda unos 30-40 ms en MPS; el bucle nunca lo espera. Si el
+  navegador baja la resolución del video mientras tanto, el mapa se lleva al tamaño del frame actual.
 - **Red frontal.** Vista de lado, la red (plano `x = 0`) se ve de canto: se dibuja como una franja de malla de frente.
 - **¿Hay mano o no?** Una región de piel solo cuenta como mano si pasa tres filtros:
   1. **Forma (caracterización):** palma de tamaño plausible (35-130 cm), relación área/palma, solidez y piel
@@ -436,7 +504,18 @@ El pipeline de las dos manos tarda **≈ 20-25 ms por frame** a 960 px (la casca
   320 px, pasa por los temas en cadena: suavizado → histograma de la luz → MOG2 → Otsu sobre |frame − fondo| →
   apertura y cierre → componentes conexas sin la cara. Si un objeto cubre al menos el 12 % del disco del balón, lo
   devuelve; su forma (o los dedos de la mano) decide el tipo de golpe, y Depth Anything descarta lo que está lejos.
-  Cuesta ~1.3 ms por frame.
+  Cuesta ~1.5 ms por frame.
+- **MOG2 con tasa fija.** Con la tasa automática (1/n) el modelo se tragaba en pocos frames una mano casi quieta al
+  empezar. Con α = 1/900 algo quieto tarda unos 3 s en volverse entorno.
+- **La velocidad, por puntos y no por lo borroso.** Primero se midió el desenfoque por movimiento (ancho del borde con
+  Sobel), pero una webcam con buena luz casi no difumina la mano y los golpes nunca salían fuertes. Ahora se siguen
+  esquinas con Lucas-Kanade y comprobación de ida y vuelta.
+- **El reloj del jugador (aprendido con fotos reales).** Con 25 fotos de gestos del autor, el juego leía bien 0: la
+  correa negra partía el brazo y se elegía el muñón de antebrazo bajo el reloj. Ahora la mano se une con ese muñón a
+  través de la correa (sin unir una mano con una cara que Haar no vio) y la muñeca no cuenta como dedo: 25/25. La ✌
+  real abre los dedos 31-42°, por eso la L (pulgar e índice) exige más de 55°.
+- **Nada tapa el balón.** Los datos y gráficas de cada tema van fuera de la cancha, y los textos del juego están en
+  palabras sencillas (que hasta un niño pueda jugar); el README y `docs/` son los que explican la técnica.
 
 Más detalle en [`docs/arquitectura.md`](docs/arquitectura.md).
 
@@ -444,17 +523,18 @@ Más detalle en [`docs/arquitectura.md`](docs/arquitectura.md).
 
 | Modelo | Uso | Latencia medida (M-series, MPS) |
 |---|---|---|
-| [depth-anything/Depth-Anything-V2-Small-hf](https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf) | Profundidad relativa: `s = (med(D_mano) − med(D_cara)) / (P95 − P5 de la mitad)`. Si la mano queda detrás de la cara de su jugador, el golpe no vale. | ≈ 110 ms |
-| [google/owlv2-base-patch16-ensemble](https://huggingface.co/google/owlv2-base-patch16-ensemble) | Detector de vocabulario abierto con `"a hand"`, asignado a cada mitad. Comparación con el pipeline clásico (IoU, distancia en px y cm, latencia). | ≈ 400-600 ms |
+| [depth-anything/Depth-Anything-V2-Small-hf](https://huggingface.co/depth-anything/Depth-Anything-V2-Small-hf) | Profundidad relativa. **Cercanía** de lo que toca el balón: mediana dentro del objeto menos la de la escena, sobre el rango p5-p95; por debajo de 0.10 no golpea. También dice si la mano está delante de la cara de su jugador. | ≈ 30-40 ms |
+| [google/owlv2-base-patch16-ensemble](https://huggingface.co/google/owlv2-base-patch16-ensemble) | Detector de vocabulario abierto con `"a hand"`, asignado a cada mitad. Comparación con el pipeline clásico (IoU, distancia en px y cm, latencia); se puede jugar con él (tecla `O`). | ≈ 500 ms |
 
 ## Pruebas
 
 ```bash
-pytest -m "not lento"   # rápidas, sin descargas (~50 s)
-pytest                  # todas, incluidas las que cargan los modelos de Hugging Face
+pytest -m "not lento"   # rápidas, sin descargas
+pytest                  # todas (199), incluidas las que cargan los modelos de Hugging Face (~80 s)
 ```
 
-Ninguna necesita la cámara: usan escenas sintéticas de verdad conocida.
+Ninguna necesita la cámara: usan escenas sintéticas de verdad conocida. Las partidas sintéticas avanzan un tiempo fijo
+por frame, así que dan lo mismo aunque el computador esté ocupado.
 
 - **Calibración y geometría:**
   - la calibración recupera `K` (error < 2 %) y la distorsión de un tablero renderizado;
@@ -472,45 +552,52 @@ Ninguna necesita la cámara: usan escenas sintéticas de verdad conocida.
   navegador con los manejadores de Gradio.
 - **Menús, vistas y web:** el menú de escritorio (inicio, ajustes, pausa, revancha, clic del mouse); cada vista por
   tema aparece en la partida y su ajuste cambia el pipeline; la página web (botón de modo, stream de la cámara,
-  botones, selector de temas y calibración guiada).
+  botones, selector de temas, panel de datos y calibración guiada); el juego aguanta que el navegador cambie la
+  resolución del video.
+- **Cada tema cambia la partida** (`tests/test_temas_en_juego.py`): un objeto que se mueve golpea y lo quieto no; un
+  cambio de luz no golpea; el suavizado quita ruido; Otsu y su mínimo; la apertura y la zona de golpe; la cara no
+  golpea; un cuaderno es un bloqueo; lo lejano no golpea; la velocidad medida por puntos coincide con la real; el
+  balón toma el color que menos hay y es 100 % de ese color.
+- **Gestos** (`tests/test_gestos.py`): cada gesto por su forma en varias inclinaciones, el anillo de medio segundo, la
+  tolerancia a frames sueltos, sacar / pausar / cambiar de tema / revancha en una partida, y la mano separada del
+  antebrazo por un reloj (reproduce lo que se vio en las fotos reales).
 
 ## Limitaciones
 
-- **Luz y ropa.** La segmentación es por color de piel: con luz de color o ropa en tonos piel, aparecen regiones
-  falsas. Se recomiendan buena luz blanca y mangas largas oscuras; si cambia la luz, recalibren la piel (`P`).
-- **Tonos de piel.** Cada jugador calibra la suya, así que no hay un rango fijo. Pero la cascada Haar detecta peor las
-  caras de piel oscura: en las escenas sintéticas no encontró la del jugador 2. En ese caso la mano se sigue
-  eligiendo por el antebrazo que entra por abajo, pero si la mano toca esa cara no se puede separar.
-- **Mano sobre la cara.** La posición y la distancia se mantienen (64 cm frente a 60 reales), pero los dedos que caen
-  sobre la cara se confunden con ella: el gesto deja de ser fiable mientras la mano la tapa.
-- **Distancia.** A más de ~75 cm cada dedo ocupa pocos píxeles y el conteo falla más (la mayoría de los errores de las
-  pruebas fueron a 79 cm). `Z` depende de que el radio de la palma de cada jugador se parezca al promedio (3.5 cm
-  efectivos); por eso el golpe se valida contra la distancia de referencia **de cada jugador**, no contra un valor fijo.
-- **No cruzar la red.** Cada mano se busca solo en su mitad de la imagen: si cruza al otro lado, se corta.
-- **Profundidad relativa.** Depth Anything no da centímetros y sobre manos reales no se ha validado aún; los
-  centímetros vienen de la calibración.
+- **Validación real limitada.** Casi todo se probó con escenas sintéticas. Con la cámara real se comprobaron los gestos
+  (25 fotos de una persona, con ☝, 👍, ✌ y ✋); la **L** de pausa, los umbrales del remate (60 cm/s) y de la velocidad
+  (0.5-1.6 anchos de imagen por segundo) todavía no se han afinado con datos reales.
+- **Luz y ropa.** La piel se busca por color: con luz de color o ropa en tonos piel aparecen regiones falsas. La piel
+  se aprende sola de la mano confirmada, pero hace falta buena luz.
+- **Cualquier cosa que se mueva golpea.** Es a propósito, pero también el cuerpo: si el balón pasa por donde está el
+  hombro y este se mueve, lo devuelve. Lo que lleva quieto unos 3 s pasa a ser entorno.
+- **Caras.** La cascada Haar detecta peor algunas caras (en las escenas sintéticas, la de piel más oscura). Si no ve
+  una cara, esa cabeza sí puede golpear, y una mano que la toca no se separa de ella.
+- **Distancia.** A más de ~75 cm cada dedo ocupa pocos píxeles y el conteo falla más. `Z` depende de que el radio de la
+  palma se parezca al promedio (3.5 cm efectivos); por eso el plano se mide **por jugador**.
+- **No cruzar la red.** Cada jugador solo golpea el balón en su mitad de la imagen.
+- **Profundidad relativa.** Depth Anything no da centímetros; los centímetros vienen de la calibración.
 - **Resolución de la calibración.** `K` vale para la resolución y la relación de aspecto con que se calibró.
-- **OWLv2** va a unos 2 FPS: sirve para comparar, no para jugar.
-- **La versión en línea depende de la red.** La cámara viaja como video por WebRTC hasta el servidor del Space (en
-  EE. UU.) y el video del juego vuelve por el mismo canal. El servidor procesa un frame en ~30 ms y descarta los
-  frames viejos, así que el retraso no se acumula, pero sigue existiendo el tiempo de ida y vuelta. Por eso en línea
-  el balón cae un poco más lento y el golpe tiene algo más de alcance. La versión de escritorio (`python jugar.py`)
-  procesa todo en tu equipo, sin red.
+- **OWLv2** va a unos 2 FPS: sirve para comparar, no para jugar con fluidez.
+- **La versión en línea** necesita un servidor TURN para el video y depende de la red (ida y vuelta al servidor). La
+  versión local procesa todo en tu equipo.
 
 ## Estructura del repositorio
 
 ```
 voleyar/
   core/      calibracion, filtros, histogramas, umbralizacion, morfologia, segmentacion,
-             caracterizacion, transformers_models, pipeline, config
-  juego/     fisica, ia_rival, partida, render_ar, asincrono, bucle, menus, vistas (un tema por vista), navegador
-  ui/        app, juego_web (la página del juego), calibracion_web, tema, estado, comunes
+             caracterizacion, movimiento, transformers_models, pipeline, config
+  juego/     fisica, ia_rival, partida, render_ar, asincrono, bucle, menus, vistas (una lente por tema),
+             gestos, navegador
+  ui/        app, juego_web (la página del juego), calibracion_web, sesiones, tema, estado
   utils/     camara, io, visualizacion, sinteticos
   entorno.py detección de Spaces/ZeroGPU
 config/      camara.json (lo crea la calibración)
 scripts/     generar_imprimibles.py, calibrar_camara.py, desplegar_space.py
 despliegue/  requirements.txt y cabecera del README para el Space
-tests/       pruebas por módulo, modo pantalla, juego y UI
+tests/       pruebas por módulo, modo pantalla, juego, UI, temas en la partida y gestos
+capturas_mano/  fotos que guarda el jugador para afinar los gestos (solo local, fuera de git)
 docs/        arquitectura.md, guion_video.md, imprimibles/, capturas/
 app.py       el juego en el navegador
 jugar.py     el juego en una ventana
