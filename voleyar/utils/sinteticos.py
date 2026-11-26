@@ -249,7 +249,8 @@ def poligonos_mano(n_dedos: int, con_brazo: bool = True) -> list[np.ndarray]:
     for d in dedos[:n_dedos]:
         polis.append(rect(*d))
     if con_brazo:
-        polis.append(np.array([[-2.0, 3.1], [-2.0, -3.1], [-26.0, -3.6], [-26.0, 3.6]]))
+        # Antebrazo: angosto en la muñeca (5.4 cm) y más ancho hacia el codo (7.6 cm)
+        polis.append(np.array([[-2.5, 2.7], [-2.5, -2.7], [-26.0, -3.8], [-26.0, 3.8]]))
     return polis
 
 
