@@ -1,4 +1,5 @@
-"""Pruebas de la interfaz web sin navegador: la página del juego, sus pantallas, las vistas por tema y la calibración."""
+"""Pruebas de la interfaz web sin navegador: la página del juego, el video por WebRTC (su manejador), las vistas
+por tema y la calibración por video."""
 
 import time
 
@@ -7,12 +8,10 @@ import pytest
 
 from voleyar.core import pipeline as pl
 from voleyar.juego.vistas import PARAMETROS, VISTAS
-from voleyar.ui import calibracion_web as cal_ui
 from voleyar.ui import estado
 from voleyar.ui import juego_web as jw
-from voleyar.ui.estado import con_sesion
+from voleyar.ui import sesiones
 from voleyar.utils import sinteticos as s
-from voleyar.utils import visualizacion as vis
 
 
 def test_la_app_se_construye_sin_laboratorio():
@@ -43,58 +42,83 @@ def test_calibracion_mejora_la_distancia_de_la_mano():
         assert e_con < 0.12 * jug.distancia and e_sin > 2 * e_con
 
 
-def test_calibracion_guiada_desde_el_juego():
-    _, gestor, _ = cal_ui.simular_capturas(12)
-    res, texto, detalles, grafica = jw.calibrar_amigable(gestor, 2.5)
-    assert res.modelo.error_rms < 0.5 and "Calibración" in texto
-
-
-def _partida_web(modo="2j"):
+def _sesion_con_juego(modo="2j"):
+    """Abre la página (clave de sesión), elige el modo y alimenta el manejador de video con frames sintéticos."""
     modelo = s.camara_ejemplo(640, 360)
     fuente = s.FuentePantalla(modelo)
-    ajustes = jw.guardar_ajustes("facil", 7, True)
-    sesion, juego, modo, *pantallas = con_sesion(lambda j, a: jw.empezar(j, modo, a))(None, None, ajustes)
-    sesion.modelo_camara = modelo  # como si hubiera calibrado en esta sesión
-    frame = con_sesion(jw.jugar_frame)
-    sesion, img, juego = frame(sesion, vis.bgr_a_rgb(fuente.leer()[1]), juego, modo, ajustes)
+    clave, _ = jw.abrir_pagina(None)
+    sesiones.obtener(clave).estado.modelo_camara = modelo  # como si hubiera calibrado en esta sesión
+    jw.guardar_ajustes(clave, "facil", 7, True)
+    pantallas = jw.empezar(clave, modo)
+    jw.frame_juego(fuente.leer()[1], clave)
+    juego = sesiones.obtener(clave).juego
     K = juego.ultimo_res.modelo.K
     for lado, jug in zip((-1, 1), fuente.jugadores):
         x, y, w, h = pl.recuadro_piel(juego.ultimo_res.imagen.shape, lado)
         jug.mano = ((x + w / 2 - K[0, 2]) / K[0, 0] * jug.distancia, (y + h / 2 - K[1, 2]) / K[1, 1] * jug.distancia)
-    juego = jw.accion("listo")(juego)
+    jw.accion("listo")(clave)
     juego.t_cuenta = time.perf_counter()
 
     def jugar(n):
-        nonlocal sesion, img, juego
+        out = None
         for _ in range(n):
-            sesion, img, juego = frame(sesion, vis.bgr_a_rgb(fuente.leer()[1]), juego, modo, ajustes)
-        return img
+            out = jw.frame_juego(fuente.leer()[1], clave)
+        return out
 
-    return sesion, juego, pantallas, jugar, ajustes
+    return clave, juego, pantallas, jugar
 
 
-def test_juego_web_con_los_manejadores_de_gradio():
-    sesion, juego, pantallas, jugar, ajustes = _partida_web()
+def test_calibracion_por_video_desde_el_juego():
+    clave, _ = jw.abrir_pagina(None)
+    modelo = s.camara_ejemplo(960, 540)
+    tex, ppcm, origen = s.textura_tablero(30.0)
+    rng = np.random.default_rng(1)
+    centro = np.array([10.0, 6.25, 0.0])
+    for _ in range(40):  # el tablero, visto como en un video desde ángulos distintos
+        if sesiones.obtener(clave).gestor is not None and len(sesiones.obtener(clave).gestor.vistas) >= 8:
+            break
+        az, elev, d = rng.uniform(0, 2 * np.pi), np.deg2rad(rng.uniform(45, 80)), rng.uniform(32, 45)
+        C = centro + d * np.array([np.cos(az) * np.cos(elev), np.sin(az) * np.cos(elev), np.sin(elev)])
+        pose = s.pose_mirando(C, centro, rodar=rng.uniform(-20, 20))
+        jw.frame_calibracion(s.renderizar_plano(tex, ppcm, origen, modelo, pose), clave)
+    assert len(sesiones.obtener(clave).gestor.vistas) >= 6
+    assert "Vistas" in jw.progreso_calibracion(clave)
+    texto, detalles, grafica = jw.calibrar_amigable(clave, 2.5)
+    assert "Calibración" in texto
+    guardado, ruta, chip = jw.usar_calibracion(clave)
+    assert sesiones.obtener(clave).estado.modelo_camara is not None and "calibrada" in chip
+
+
+def test_juego_web_por_video():
+    clave, juego, pantallas, jugar = _sesion_con_juego()
     assert juego.op.interfaz == "web" and juego.op.puntos == 7
     assert [p.visible for p in pantallas] == [p == "juego" for p in jw.PANTALLAS]
-    img = jugar(5)
-    assert juego.fase == "jugando" and juego.config.usar_calibracion and img.shape == (360, 640, 3)
-    juego = jw.accion("pausa")(juego)
+    out = jugar(5)
+    assert juego.fase == "jugando" and juego.config.usar_calibracion and out.shape == (360, 640, 3)
+    jw.accion("pausa")(clave)
     assert juego.pausado
     # Volver al menú y elegir otro modo conserva la piel del jugador 1
-    sesion, juego2, *_ = con_sesion(lambda j, a: jw.empezar(j, "ia", a))(sesion, juego, ajustes)
-    assert juego2 is juego and juego.op.modo == "ia" and juego.fase == "jugando" and not juego.pausado
+    jw.volver_al_menu(clave)
+    jw.empezar(clave, "ia")
+    assert sesiones.obtener(clave).juego is juego and juego.op.modo == "ia" and juego.fase == "jugando"
+    assert not juego.pausado
+
+
+def test_cada_sesion_tiene_su_propio_juego():
+    a, ja, _, _ = _sesion_con_juego()
+    b, jb, _, _ = _sesion_con_juego()
+    assert a != b and ja is not jb
 
 
 @pytest.mark.parametrize("vista", [v for v in VISTAS if v not in ("juego", "transformers")])
 def test_cada_tema_se_ve_en_la_partida_y_su_ajuste_cambia(vista):
-    sesion, juego, _, jugar, _ = _partida_web()
+    clave, juego, _, jugar = _sesion_con_juego()
     jugar(3)
-    juego, texto = jw.elegir_vista(juego, vista)
-    img = jugar(1)
-    assert img.shape[0] == 360 and img.shape[1] > 640  # el panel del tema aparece al lado del juego
+    texto = jw.elegir_vista(clave, vista)
+    out = jugar(1)
+    assert out.shape[0] == 360 and out.shape[1] > 640  # el panel del tema aparece al lado del juego
     p = PARAMETROS[vista]
     antes = p.leer(juego)
-    juego, texto2 = jw.cambiar(1)(juego, vista)
+    texto2 = jw.cambiar(1)(clave, vista)
     assert p.leer(juego) != antes and "cambia" in texto2
     jugar(1)  # el pipeline sigue funcionando con el ajuste nuevo
