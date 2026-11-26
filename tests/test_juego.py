@@ -212,28 +212,30 @@ def test_juego_sin_ventana_con_fuente_sintetica(modo):
         assert j.eventos_totales.count("golpe_rival") >= 2  # el jugador 2 también devuelve
         assert all(x.z_ref is not None for x in j.jugadores.values())
     j.vista = "segmentacion"
-    assert j.paso().shape[:2] == (540, 960)  # el lente del tema no cambia el tamaño del juego
+    assert j.paso().shape[:2] == (540 + int(540 * 0.3), 960)  # escena intacta + franja de datos debajo
 
 
 def test_juego_en_el_navegador_con_frames_externos():
-    import time
-
     from voleyar.juego.navegador import FuenteExterna, crear_juego_navegador, paso_navegador
 
     modelo = s.camara_ejemplo(640, 360)
     j = crear_juego_navegador(modelo, "2j")
     assert isinstance(j.fuente, FuenteExterna)
     fuente = s.FuentePantalla(modelo)
-    assert paso_navegador(j, fuente.leer()[1]) is not None and j.fase == "calibrar_piel"
-    res = j.ultimo_res
-    K = res.modelo.K
-    for lado, jug in zip((-1, 1), fuente.jugadores):  # cada palma sobre su recuadro
-        x, y, w, h = pl.recuadro_piel(res.imagen.shape, lado)
-        jug.mano = ((x + w / 2 - K[0, 2]) / K[0, 0] * jug.distancia, (y + h / 2 - K[1, 2]) / K[1, 1] * jug.distancia)
-    j.tecla(ord(" "))
-    j.t_cuenta = time.perf_counter()
     out = paso_navegador(j, fuente.leer()[1])
-    assert j.fase == "jugando" and out.shape[:2] == (360, 640)
+    assert j.fase == "jugando" and out.shape[:2] == (360, 640)  # se juega de una, sin calibrar la piel
+
+
+def test_la_piel_se_aprende_sola_de_la_mano_confirmada():
+    from voleyar.juego.bucle import Juego, OpcionesJuego
+
+    j = Juego(OpcionesJuego(modo="2j", sintetico=True, profundidad=False, headless=True, semilla=3,
+                            ancho=960, alto=540))
+    assert j.fase == "jugando" and all(x.piel is None for x in j.jugadores.values())
+    _jugar(j, 150)
+    for x in j.jugadores.values():  # cada jugador tiene ya su histograma, sacado de su propia mano
+        assert x.piel is not None and x.n_aprendizajes >= 1 and x.piel.hist_crcb.max() > 0
+    assert all(r.retro is not None for r in j.ultimo_res.manos.values())  # y ya se usa la retroproyección
 
 
 def test_menus_del_juego_de_escritorio():
@@ -279,12 +281,14 @@ def test_vistas_por_tema_en_la_ventana():
     for _ in VISTAS[1:-1]:  # sin transformers (carga modelos; se prueba en las pruebas lentas)
         j.tecla(ord("v"))
         vistas.append(j.vista)
-        assert j.paso().shape[:2] == (540, 960)  # el tema se ve dentro del juego
+        out = j.paso()
+        # la escena del juego no cambia de tamaño ni se tapa: los datos van en una franja debajo
+        assert out.shape[:2] == (540 + int(540 * 0.3), 960)
     assert vistas == list(VISTAS[1:-1])
     j.vista = "morfologia"
-    cierre = j.config.tam_cierre
+    alcance = j.config.mov_alcance
     j.tecla(ord("]"))
-    assert j.config.tam_cierre != cierre
+    assert j.config.mov_alcance > alcance  # el ajuste de morfología agranda la zona de golpe
     j.tecla(ord("b"))
     assert j.vista == "umbralizacion"
 
@@ -300,3 +304,94 @@ def test_vista_de_transformers_con_los_modelos():
     j.vista = "transformers"
     img = j.paso()
     assert j.ultimo_prof is not None and j.ultimo_owl is not None and img.shape[:2] == (540, 960)
+
+
+# --------------------------------------------------------------- golpe con cualquier objeto
+def _fondo(h=360, w=640, semilla=0):
+    """Un cuarto sin piel: textura azul grisácea fija (el entorno)."""
+    rng = np.random.default_rng(semilla)
+    base = np.zeros((h, w, 3), np.uint8)
+    base[:] = (120, 90, 60)
+    return cv2.add(base, rng.integers(0, 25, (h, w, 3), dtype=np.uint8))
+
+
+def _juego_objeto():
+    from voleyar.juego.navegador import crear_juego_navegador
+
+    j = crear_juego_navegador(s.camara_ejemplo(640, 360), "ia")
+    j.fase, j.t_cuenta = "jugando", None
+    return j
+
+
+def _balon_px(j):
+    """Dónde se ve el balón, en coordenadas del frame que manda la cámara (antes del espejo)."""
+    res = j.ultimo_res
+    pos = j.partida.balon.pos
+    c = cal.proyectar(pos[None], res.pose, res.modelo)[0]
+    if j.config.espejo:
+        c[0] = res.imagen.shape[1] - 1 - c[0]
+    return c, ra.radio_en_pixeles(pos, res.pose, res.modelo)
+
+
+def _con_objeto(fondo, c, r, rng):
+    """Un objeto (no es piel: un cuaderno verde con textura) sobre el balón."""
+    img = fondo.copy()
+    x0, y0 = int(c[0] - r), int(c[1] - r)
+    bloque = rng.integers(0, 60, (int(2 * r), int(2 * r), 3), dtype=np.uint8)
+    bloque[..., 1] += 150
+    img[max(0, y0):y0 + bloque.shape[0], max(0, x0):x0 + bloque.shape[1]] = \
+        bloque[max(0, -y0):, max(0, -x0):][:img.shape[0] - max(0, y0), :img.shape[1] - max(0, x0)]
+    return img
+
+
+def test_contacto_en_movimiento_cuenta_lo_que_se_mueve_sobre_el_balon():
+    from voleyar.core import segmentacion as seg
+
+    mov = np.zeros((200, 300), np.uint8)
+    assert not seg.contacto_en_movimiento(mov, np.array([100, 100]), 20).toca
+    cv2.circle(mov, (100, 100), 15, 255, -1)
+    c = seg.contacto_en_movimiento(mov, np.array([100, 100]), 20)
+    assert c.toca and c.fraccion > 0.12 and np.allclose(c.centroide, (100, 100), atol=1)
+    assert not seg.contacto_en_movimiento(mov, np.array([250, 100]), 20).toca  # el movimiento está en otro lado
+    assert seg.contacto_en_movimiento(np.full_like(mov, 255), np.array([100, 100]), 20).motivo == "cambio de luz"
+    assert not seg.contacto_en_movimiento(None, np.array([100, 100]), 20).toca
+
+
+def test_cualquier_objeto_en_movimiento_devuelve_el_balon():
+    from voleyar.juego.navegador import paso_navegador
+
+    j, fondo, rng = _juego_objeto(), _fondo(), np.random.default_rng(1)
+    for _ in range(25):  # el juego aprende el entorno
+        paso_navegador(j, fondo)
+    assert "golpe" not in j.eventos_totales
+    c, r = _balon_px(j)
+    for k in range(15):  # un objeto que no es una mano entra moviéndose sobre el balón
+        paso_navegador(j, _con_objeto(fondo, c + np.array([(k % 3 - 1) * r * 0.3, 0]), r, rng))
+        if "golpe" in j.eventos_totales:
+            break
+    assert "golpe" in j.eventos_totales
+    assert j.partida.marcas[-1].texto == "Golpe" and j.partida.balon.vel[0] > 0  # va hacia el rival
+    assert j.jugadores[-1].contacto.toca
+
+
+def test_lo_quieto_es_entorno_y_no_golpea():
+    from voleyar.juego.navegador import paso_navegador
+
+    j, rng = _juego_objeto(), np.random.default_rng(2)
+    paso_navegador(j, _fondo())
+    c, r = _balon_px(j)
+    escena = _con_objeto(_fondo(), c, r, rng)  # el objeto ya estaba ahí desde el principio
+    for _ in range(40):
+        paso_navegador(j, escena)
+    assert "golpe" not in j.eventos_totales
+
+
+def test_un_cambio_de_luz_no_golpea():
+    from voleyar.juego.navegador import paso_navegador
+
+    j, fondo = _juego_objeto(), _fondo()
+    for _ in range(25):
+        paso_navegador(j, fondo)
+    for k in range(10):  # la cámara reajusta la exposición: toda la imagen cambia
+        paso_navegador(j, cv2.convertScaleAbs(fondo, alpha=1.6 + 0.05 * k, beta=30))
+    assert "golpe" not in j.eventos_totales

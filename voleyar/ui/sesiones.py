@@ -1,7 +1,7 @@
 """Sesiones de la página web: qué juego y qué calibración tiene cada visitante.
 
 El video llega por WebRTC a un manejador que no conoce los ``gr.State`` de la
-página; los botones (¡Listo!, Pausa, temas…) sí. Para que ambos toquen el mismo
+página; los botones (Pausa, temas…) sí. Para que ambos toquen el mismo
 ``Juego`` se guarda todo aquí, bajo una clave aleatoria que la página crea al
 abrirse y le pasa tanto al video como a los botones.
 """

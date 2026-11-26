@@ -51,13 +51,7 @@ def _sesion_con_juego(modo="2j"):
     jw.guardar_ajustes(clave, "facil", 7, True, espejo=False)  # los frames sintéticos ya están sin espejo
     pantallas = jw.empezar(clave, modo)
     jw.frame_juego(fuente.leer()[1], clave)
-    juego = sesiones.obtener(clave).juego
-    K = juego.ultimo_res.modelo.K
-    for lado, jug in zip((-1, 1), fuente.jugadores):
-        x, y, w, h = pl.recuadro_piel(juego.ultimo_res.imagen.shape, lado)
-        jug.mano = ((x + w / 2 - K[0, 2]) / K[0, 0] * jug.distancia, (y + h / 2 - K[1, 2]) / K[1, 1] * jug.distancia)
-    jw.accion("listo")(clave)
-    juego.t_cuenta = time.perf_counter()
+    juego = sesiones.obtener(clave).juego  # se juega de una, sin calibrar la piel
 
     def jugar(n):
         out = None
@@ -103,7 +97,7 @@ def test_juego_web_por_video():
     assert juego.fase == "jugando" and juego.config.usar_calibracion and out.shape == (360, 640, 3)
     jw.accion("pausa")(clave)
     assert juego.pausado
-    # Volver al menú y elegir otro modo conserva la piel del jugador 1
+    # Volver al menú y elegir otro modo conserva la sesión y su juego
     jw.volver_al_menu(clave)
     jw.empezar(clave, "ia")
     assert sesiones.obtener(clave).juego is juego and juego.op.modo == "ia" and juego.fase == "jugando"
@@ -120,7 +114,8 @@ def test_cada_sesion_tiene_su_propio_juego():
 def test_cada_tema_se_ve_en_la_partida_y_su_ajuste_cambia(vista):
     clave, juego, _, jugar = _sesion_con_juego()
     jugar(3)
-    texto = jw.elegir_vista(clave, vista)
+    texto, menos, mas = jw.elegir_vista(clave, vista)
+    assert menos["interactive"] and mas["interactive"]  # hay algo que ajustar: botones encendidos
     out = jugar(1)
     assert out.shape == (360, 640, 3)  # el tema se ve dentro del juego, no en un panel aparte
     from voleyar.juego.vistas import lente
@@ -130,6 +125,36 @@ def test_cada_tema_se_ve_en_la_partida_y_su_ajuste_cambia(vista):
     assert lineas and escena.shape == res.imagen.shape and not np.array_equal(escena, res.imagen)
     p = PARAMETROS[vista]
     antes = p.leer(juego)
-    texto2 = jw.cambiar(1)(clave, vista)
+    texto2, _, _ = jw.cambiar(1)(clave, vista)
     assert p.leer(juego) != antes and "cambia" in texto2
     jugar(1)  # el pipeline sigue funcionando con el ajuste nuevo
+    texto, graficas, _ = jw.datos_tema(clave)  # los datos y gráficas van a la columna, fuera de la cancha
+    assert texto["visible"] and texto["value"]
+    if vista == "histogramas":  # (la de umbralización aparece tras aprender el fondo)
+        assert graficas["visible"] and graficas["value"].shape[0] == 160
+
+
+def test_sin_ajuste_disponible_los_botones_se_apagan_y_explican_por_que():
+    clave, juego, _, jugar = _sesion_con_juego()
+    jugar(2)
+    texto, menos, mas = jw.elegir_vista(clave, "juego")  # la vista normal no tiene ajuste
+    assert not menos["interactive"] and not mas["interactive"] and "Qué quieres ver" in texto
+    assert not any(x.get("visible") for x in jw.datos_tema(clave))  # ni panel de datos
+    juego.modelo_camara = None  # cámara sin calibrar: no hay calibración que encender o apagar
+    texto, menos, mas = jw.elegir_vista(clave, "calibracion")
+    assert not menos["interactive"] and "calibra la cámara" in texto
+    texto, menos, mas = jw.elegir_vista(clave, "filtros")
+    assert menos["interactive"] and mas["interactive"]
+
+
+def test_guardar_foto_de_la_mano_solo_en_local(tmp_path):
+    import json
+
+    clave, juego, _, jugar = _sesion_con_juego()
+    jugar(3)
+    msg = jw.guardar_foto_mano(clave, carpeta=tmp_path)
+    assert "guardada" in msg
+    archivos = sorted(p.name for p in tmp_path.iterdir())
+    assert any(n.endswith("_imagen.png") for n in archivos)
+    datos = json.loads(next(tmp_path.glob("*_datos.json")).read_text())
+    assert set(datos["manos"]) == {"-1", "1"} and "dedos_anillo" in datos["manos"]["-1"]

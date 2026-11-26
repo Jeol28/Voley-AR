@@ -341,6 +341,11 @@ def mano_delante_de_la_cara(mapa: np.ndarray, mascara_mano: np.ndarray, caja_car
     """
     if mascara_mano is None or not mascara_mano.any():
         return None
+    if mapa.shape[:2] != mascara_mano.shape[:2]:
+        # el mapa se calculó en otro hilo sobre un frame anterior; si el navegador bajó la resolución
+        # del video entre tanto, tiene otro tamaño y se lleva al del frame actual
+        mapa = cv2.resize(mapa.astype(np.float32), (mascara_mano.shape[1], mascara_mano.shape[0]),
+                          interpolation=cv2.INTER_LINEAR)
     x, y, w, h = caja_cara
     H, W = mapa.shape[:2]
     x0, y0, x1, y1 = max(0, x + w // 4), max(0, y + h // 4), min(W, x + 3 * w // 4), min(H, y + 3 * h // 4)

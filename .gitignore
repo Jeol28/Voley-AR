@@ -23,3 +23,6 @@ flagged/
 # Capturas temporales de calibración
 config/capturas/
 dist/
+
+# Fotos de la mano que guarda el jugador para afinar los gestos (datos personales: nunca al repositorio)
+capturas_mano/

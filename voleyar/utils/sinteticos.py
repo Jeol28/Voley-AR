@@ -211,12 +211,18 @@ def pose_juego_por_defecto() -> Pose:
 # =========================================================================== #
 
 
-def poligonos_mano(n_dedos: int, con_brazo: bool = True) -> list[np.ndarray]:
+NOMBRES_DEDOS = ("indice", "medio", "anular", "menique", "pulgar")
+
+
+def poligonos_mano(n_dedos: int, con_brazo: bool = True, dedos: tuple[str, ...] | None = None) -> list[np.ndarray]:
     """Silueta de una mano en cm, en un sistema local con la palma en el origen.
 
     Los dedos apuntan hacia +x y el antebrazo sale hacia -x. ``n_dedos``
     extendidos (0 = puño): índice, medio, anular, meñique y por último pulgar.
+    Con ``dedos`` se eligen cuáles (por ejemplo ``("indice", "pulgar")`` para una L).
     """
+    if dedos is not None:
+        n_dedos = len(dedos)
     n_dedos = int(np.clip(n_dedos, 0, 5))
     polis: list[np.ndarray] = []
     t = np.linspace(0, 2 * np.pi, 48, endpoint=False)
@@ -239,14 +245,19 @@ def poligonos_mano(n_dedos: int, con_brazo: bool = True) -> list[np.ndarray]:
         return np.array([pts[0], pts[1], *arco])
 
     # (base_x, base_y, largo, ancho, ángulo) – mano derecha vista desde arriba (palma abajo)
-    dedos = [
+    geometria = [
         (3.4, 2.4, 7.0, 1.6, 18),    # índice (dedos algo separados, como al golpear con la mano abierta)
         (3.9, 0.65, 7.6, 1.65, 6),   # medio
         (3.7, -1.15, 7.0, 1.55, -7),  # anular
         (3.1, -2.85, 5.6, 1.4, -21),  # meñique
         (0.6, 3.4, 5.6, 2.0, 62),    # pulgar
     ]
-    for d in dedos[:n_dedos]:
+    if dedos is not None and set(dedos) == {"indice", "pulgar"}:
+        # Una L: el pulgar se abre casi en ángulo recto con el índice (en fotos reales, 70-90°)
+        geometria[4] = (0.6, 3.4, 5.6, 2.0, 100)
+    elegidos = ([d for nombre, d in zip(NOMBRES_DEDOS, geometria) if nombre in dedos] if dedos is not None
+                else geometria[:n_dedos])
+    for d in elegidos:
         polis.append(rect(*d))
     if con_brazo:
         # Antebrazo: angosto en la muñeca (5.4 cm) y más ancho hacia el codo (7.6 cm)
@@ -261,14 +272,14 @@ def mano_a_mesa(polis: list[np.ndarray], pos: tuple[float, float], angulo: float
 
 
 def silueta_mano_2d(n_dedos: int, escala: float = 22.0, angulo: float = 90.0, con_brazo: bool = True,
-                    tam: tuple[int, int] = (480, 640)) -> np.ndarray:
+                    tam: tuple[int, int] = (480, 640), dedos: tuple[str, ...] | None = None) -> np.ndarray:
     """Máscara binaria de una mano (para probar el conteo de dedos).
 
     Los dedos apuntan hacia arriba en la imagen con ``angulo = 90`` y el brazo
     sale por el borde inferior.
     """
     h, w = tam
-    polis = mano_a_mesa(poligonos_mano(n_dedos, con_brazo), (0, 0), angulo)
+    polis = mano_a_mesa(poligonos_mano(n_dedos, con_brazo, dedos), (0, 0), angulo)
     centro = np.array([w / 2, h * 0.58])
     m = np.zeros((h, w), np.uint8)
     for p in polis:
@@ -397,6 +408,7 @@ class JugadorSintetico:
     camisa: tuple[int, int, int] = (70, 50, 35)
     visible: bool = True
     mano_visible: bool = True  # la persona sigue en la imagen aunque no juegue (modo contra la IA)
+    dedos: tuple[str, ...] | None = None  # dedos concretos (p. ej. ("indice", "pulgar") para una L)
 
 
 def jugadores_por_defecto(n: int = 2) -> list[JugadorSintetico]:
@@ -459,7 +471,7 @@ def fondo_pantalla(modelo: ModeloCamara, jugadores: list[JugadorSintetico], semi
 
 def dibujar_mano_pantalla(img: np.ndarray, modelo: ModeloCamara, j: JugadorSintetico, semilla: int = 0):
     """Mano levantada frente a la cámara (plano z = distancia). Devuelve imagen, mano verdadera y toda la piel."""
-    polis = mano_a_mesa(poligonos_mano(j.n_dedos, True), (0.0, 0.0), j.angulo)
+    polis = mano_a_mesa(poligonos_mano(j.n_dedos, True, j.dedos), (0.0, 0.0), j.angulo)
     out = img.copy()
     verdad = np.zeros(img.shape[:2], np.uint8)
     capa = np.zeros(img.shape[:2], np.uint8)

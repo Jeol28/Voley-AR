@@ -147,14 +147,46 @@ def casco_y_defectos(contorno: np.ndarray) -> tuple[np.ndarray, list[Defecto]]:
     return casco_pts, defectos
 
 
-GESTOS = {
-    0: ("bloqueo", 0.70),
-    1: ("toque", 0.50),
+GESTOS = {  # dedos levantados → nombre de la mano y fuerza
+    0: ("puño", 1.00),
+    1: ("puño", 0.95),
     2: ("golpe", 0.80),
     3: ("golpe", 0.85),
-    4: ("remate", 1.00),
-    5: ("remate", 1.05),
+    4: ("mano abierta", 0.60),
+    5: ("mano abierta", 0.55),
 }
+
+# Tipos de golpe del juego y su nombre en pantalla
+TIPOS_GOLPE = {
+    "remate": "¡Remate!",
+    "fuerte": "Golpe fuerte",
+    "golpe": "Golpe",
+    "suave": "Toque suave",
+    "bloqueo": "Bloqueo",
+}
+
+
+def tipo_de_golpe(n_dedos: int | None = None, vz_cm: float | None = None, area_rel: float | None = None,
+                  solidez: float | None = None, remate_vz: float = 60.0) -> str:
+    """Qué golpe es, según lo que tocó el balón.
+
+    - Una mano reconocida que avanza hacia la cámara más rápido que ``remate_vz``
+      (cm/s, con :math:`Z = f\\,W/w` de la calibración) → **remate**.
+    - Puño (0-1 dedos) → **fuerte**; mano abierta (4-5) → **suave**; si no, golpe normal.
+    - Sin mano: un objeto grande (≥ 3 veces el disco del balón) y compacto (solidez
+      ≥ 0.8), como un cuaderno, → **bloqueo**; si no, golpe normal.
+    """
+    if n_dedos is not None:
+        if vz_cm is not None and vz_cm <= -remate_vz:
+            return "remate"
+        if n_dedos <= 1:
+            return "fuerte"
+        if n_dedos >= 4:
+            return "suave"
+        return "golpe"
+    if area_rel is not None and area_rel >= 3.0 and (solidez or 0.0) >= 0.8:
+        return "bloqueo"
+    return "golpe"
 
 
 @dataclass
@@ -172,6 +204,9 @@ class AnalisisMano:
     contorno: np.ndarray
     distancias: np.ndarray = field(repr=False, default_factory=lambda: np.zeros(0))
     umbral_dedo: float = 0.0
+    n_anillo: int | None = None  # dedos contados recorriendo círculos alrededor de la palma (segunda opinión)
+    angulos_anillo: list[float] = field(default_factory=list)  # dirección (grados, imagen) de cada dedo cruzado
+    radios_anillo: list[float] = field(default_factory=list)  # radios de los círculos usados (px)
 
 
 def analizar_mano(mascara_mano: np.ndarray, direccion_brazo: tuple[float, float] | None = None,
@@ -249,8 +284,52 @@ def analizar_mano(mascara_mano: np.ndarray, direccion_brazo: tuple[float, float]
             punto = c  # mano abierta: centro de la palma
     else:
         punto = (float(punta_principal[0]), float(punta_principal[1]))
-    return AnalisisMano(n, puntas, punta_principal, c, r, casco, defectos, gesto, fuerza, punto, contorno, d, umbral)
+    out = AnalisisMano(n, puntas, punta_principal, c, r, casco, defectos, gesto, fuerza, punto, contorno, d, umbral)
+    out.n_anillo, out.angulos_anillo, out.radios_anillo = dedos_por_anillo(mascara_mano, c, r, direccion_brazo)
+    return out
 
+
+def dedos_por_anillo(mascara: np.ndarray, centro, radio: float, direccion_brazo=None,
+                     factores=(1.5, 1.8, 2.1), ancho_min: float = 3.0, ancho_max: float = 45.0,
+                     excluir_brazo: float = 50.0) -> tuple[int, list[float], list[float]]:
+    r"""Cuenta los dedos recorriendo círculos alrededor de la palma.
+
+    Cada círculo de radio :math:`R = f\,r_{palma}` corta cada dedo extendido en un arco
+    de piel. Se cuentan los arcos de ancho angular razonable (ni ruido ni la palma
+    entera) que no estén hacia el brazo, y se toma la mediana de los tres círculos.
+    Es menos sensible que los defectos del casco convexo cuando el borde es irregular.
+    Devuelve (dedos, dirección de cada dedo en grados, radios usados).
+    """
+    H, W = mascara.shape[:2]
+    brazo = (np.degrees(np.arctan2(direccion_brazo[1], direccion_brazo[0]))
+             if direccion_brazo is not None else None)
+    t = np.radians(np.arange(0, 360, 1.0))
+    cuentas, por_radio, radios = [], [], []
+    for f in factores:
+        R = f * radio
+        xs = np.round(centro[0] + R * np.cos(t)).astype(int)
+        ys = np.round(centro[1] + R * np.sin(t)).astype(int)
+        ok = (xs >= 0) & (xs < W) & (ys >= 0) & (ys < H)
+        v = np.zeros(360, bool)
+        v[ok] = mascara[ys[ok], xs[ok]] > 0
+        dedos: list[float] = []
+        if v.any() and not v.all():
+            k = int(np.argmin(v))  # empezar fuera de la piel para no partir un arco en dos
+            v = np.roll(v, -k)
+            d = np.diff(np.r_[0, v.astype(int), 0])
+            for i, j in zip(np.where(d == 1)[0], np.where(d == -1)[0]):
+                c = ((i + j - 1) / 2 + k) % 360
+                if not (ancho_min <= j - i <= ancho_max):
+                    continue
+                if brazo is not None and abs((c - brazo + 180) % 360 - 180) < excluir_brazo:
+                    continue
+                dedos.append(float(c))
+        cuentas.append(len(dedos))
+        por_radio.append(dedos)
+        radios.append(float(R))
+    n = int(np.median(cuentas))
+    elegido = next((d for d in por_radio if len(d) == n), [])
+    return n, elegido, radios
 
 # =========================================================================== #
 # Posición en la mesa y velocidad

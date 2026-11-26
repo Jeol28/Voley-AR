@@ -38,7 +38,9 @@ ETIQUETAS = {"start": "Empezar", "stop": "Detener", "waiting": "Conectando…"}
 def _opciones_vista():
     from voleyar.juego.vistas import TITULOS, VISTAS
 
-    return [("Solo el juego" if v == "juego" else f"{i} · {TITULOS[v]}", v) for i, v in enumerate(VISTAS)]
+    from voleyar.juego.vistas import APODOS
+
+    return [("Solo el juego" if v == "juego" else f"{TITULOS[v]}: {APODOS[v]}", v) for v in VISTAS]
 
 
 OPCIONES_VISTA = _opciones_vista()
@@ -54,37 +56,55 @@ COMO_SE_JUEGA = """
 ### Prepárense
 1. Pongan la cámara frente a ustedes, a unos **50-75 cm**. **Jugador 1 a la izquierda, jugador 2 a la derecha**
    (o tú solo a la izquierda contra la IA). Buena luz y, si se puede, mangas largas oscuras.
-2. Pulsen **Empezar** en el video. Aparece un **recuadro naranja** en la mitad de cada jugador: pongan la palma
-   encima, a la distancia a la que van a jugar, y pulsen **¡Listo!**. Así el juego aprende el color de su piel.
+2. Pulsen **Empezar** en el video y a jugar: no hay nada que calibrar. Muevan la mano (o un cuaderno, o lo que
+   quieran) sobre el balón para devolverlo. Lo que se queda quieto es parte del cuarto y no golpea. El juego aprende
+   solo el color de su piel en cuanto reconoce sus manos.
 
 ### Golpes
-| Mano | Golpe |
+| Qué toca el balón | Golpe |
 |---|---|
-| 🖐 Abierta | **Remate**: fuerte y bajo |
-| ✌ Dos o tres dedos | **Golpe** normal |
-| ☝ Un dedo | **Toque**: suave y alto |
-| ✊ Puño | **Bloqueo** |
+| 🖐 La mano avanzando rápido hacia la cámara | **¡Remate!**: bajo, rápido y al fondo |
+| ✊ Puño | **Golpe fuerte**: largo |
+| ✌ Dos o tres dedos, o un objeto pequeño | **Golpe** normal |
+| 🖐 Mano abierta | **Toque suave**: alto y corto |
+| 📓 Un objeto grande y plano (un cuaderno) | **Bloqueo**: rebota corto |
 
-Hacia dónde muevas la mano decide hacia dónde sale el balón.
+La cara no golpea, y lo que pasa lejos, por detrás, tampoco.
+
+### Gestos (mano quieta medio segundo)
+| Gesto | Qué hace |
+|---|---|
+| ✋ Mano abierta | **Sacar** |
+| 👆 Pulgar e índice, como una L | **Pausa** y seguir |
+| 👍 Un dedo hacia arriba | **Revancha** al terminar |
+| ✌ Dos dedos juntos | **Cambiar** lo que ves |
+
+Alrededor de tu mano aparece un círculo que se va llenando: cuando se completa, el gesto funciona.
 
 ### Reglas
 - Cada lado devuelve el balón con **un toque** y se permite **un bote**.
-- **No crucen la red**: cada mano juega en su mitad de la imagen.
-- El golpe vale si la mano está a la distancia a la que empezaste (el juego la mide al inicio de la partida).
+- **No crucen la red**: cada jugador golpea el balón en su mitad de la imagen.
 - Gana quien llegue primero a los puntos elegidos en Ajustes.
 
 ### Para que funcione mejor
 Calibra la cámara una vez con el tablero (botón **Calibrar cámara** del inicio): así el juego mide en centímetros
-reales a qué distancia está cada mano.
+reales a qué distancia está cada mano y a qué velocidad la acercas, que es lo que decide el remate.
 """
 
 VER_TEMAS = """
 ### ¿Cómo te ve el juego?
-Durante la partida, **¿Qué quieres ver?** cambia la pantalla a cualquiera de los temas de visión artificial que el juego
-usa en ese momento: **calibración** (la lente y la distancia de tu mano), **filtros**, **histogramas** (el color de tu
-piel), **umbralización**, **morfología**, **segmentación** (tu mano, tu brazo y tu cara), **caracterización** (tus
-dedos) y **transformers** (profundidad y detección por texto). Con **−** y **+** cambias el ajuste de ese tema y ves el
-efecto en vivo, sin dejar de jugar.
+Mientras juegas, **¿Qué quieres ver?** te muestra cómo te ve el juego. Cada tema hace algo:
+
+- **Calibración:** mide qué tan cerca está tu mano. ¡Acércala rápido para rematar!
+- **Filtros:** sigue puntitos de tu mano para saber qué tan rápido va. ¡Golpea rápido y sale más fuerte!
+- **Histogramas:** mira los colores de tu cuarto y pinta el balón del que más resalta.
+- **Umbralización:** decide qué se movió. Lo blanco se está moviendo.
+- **Morfología:** agranda tu zona de golpe. ¡Más grande es más fácil!
+- **Segmentación:** pinta de un color cada cosa que se mueve. Tu cara no cuenta.
+- **Caracterización:** cuenta tus dedos: con gestos sacas, pausas o pides revancha. Y la forma decide el golpe.
+- **Transformers:** una inteligencia artificial ve qué está cerca. Lo de atrás no golpea.
+
+Con **−** y **+** cambias cómo funciona y lo notas al jugar.
 """
 
 CALIBRAR_INTRO = """
@@ -225,7 +245,7 @@ def _preparar(s: sesiones.Sesion) -> None:
 
 
 def empezar(clave: str, modo: str):
-    """Botón de modo en el inicio: partida nueva (si ya calibraron la piel, se conserva)."""
+    """Botón de modo en el inicio: partida nueva (la piel ya aprendida se conserva)."""
     s = sesiones.obtener(clave)
     with s.cerrojo:
         s.modo = modo
@@ -272,33 +292,113 @@ def accion(nombre: str):
 
 
 def _texto_param(juego, vista: str) -> str:
-    from voleyar.juego.vistas import QUE_HACE, texto_parametro
+    from voleyar.juego.vistas import QUE_HACE, parametro_disponible, texto_parametro
 
     if vista == "juego" or juego is None:
-        return ""
-    return f"{QUE_HACE[vista]}  \n**−/+ cambia** {texto_parametro(juego, vista)}"
+        return "Elige un tema en **¿Qué quieres ver?** para ver cómo funciona el juego por dentro."
+    if not parametro_disponible(juego, vista):
+        return f"{QUE_HACE[vista]}  \n**− / +:** {texto_parametro(juego, vista)}."
+    return f"{QUE_HACE[vista]}  \n**Con − / + cambias:** {texto_parametro(juego, vista)}"
 
 
-def elegir_vista(clave: str, vista: str) -> str:
+def _controles_param(juego, vista: str):
+    """Texto del ajuste y los botones − / + (apagados si en esta vista no hay nada que cambiar)."""
+    from voleyar.juego.vistas import parametro_disponible
+
+    activo = parametro_disponible(juego, vista)
+    return _texto_param(juego, vista), gr.update(interactive=activo), gr.update(interactive=activo)
+
+
+def elegir_vista(clave: str, vista: str):
     s = sesiones.obtener(clave)
     with s.cerrojo:
         if s.juego is not None:
             s.juego.vista = vista
-        return _texto_param(s.juego, vista)
+        return _controles_param(s.juego, vista)
 
 
 def cambiar(paso: int):
-    def manejador(clave: str, vista: str) -> str:
+    def manejador(clave: str, vista: str):
         from voleyar.juego.vistas import cambiar_parametro
 
         s = sesiones.obtener(clave)
         with s.cerrojo:
             if s.juego is not None:
                 cambiar_parametro(s.juego, vista, paso)
-            return _texto_param(s.juego, vista)
+            return _controles_param(s.juego, vista)
 
     manejador.__name__ = "parametro_mas" if paso > 0 else "parametro_menos"
     return manejador
+
+
+def datos_tema(clave: str):
+    """Datos en vivo y gráficas del tema que se está viendo, en la columna de la izquierda (fuera de la cancha)."""
+    s = sesiones.obtener(clave)
+    with s.cerrojo:
+        j = s.juego
+        menu = gr.update()
+        if j is not None and j.vista_por_gesto:  # cambió de tema con ✌: el menú lo sigue
+            j.vista_por_gesto = False
+            menu = gr.update(value=j.vista)
+        if j is None or j.vista == "juego":
+            return gr.update(value="", visible=False), gr.update(value=None, visible=False), menu
+        texto = "  \n".join(j.lineas_tema[:2])
+        graficas = list(getattr(j, "graficas_tema", []))
+    img = None
+    if graficas:  # una al lado de la otra, misma altura
+        alto = 160
+        partes = [cv2.resize(g, (max(1, int(g.shape[1] * alto / g.shape[0])), alto)) for g in graficas]
+        img = vis.bgr_a_rgb(np.hstack(partes))
+    return (gr.update(value=texto, visible=bool(texto)),
+            gr.update(value=img, visible=img is not None), menu)
+
+
+CARPETA_FOTOS = cfg.RAIZ_PROYECTO / "capturas_mano"
+
+
+def guardar_foto_mano(clave: str, carpeta=None) -> str:
+    """Guarda en tu computador el frame actual, la máscara de cada mano y lo que el juego leyó.
+
+    Sirve para afinar el conteo de dedos con fotos reales. No se sube a ningún lado
+    (la carpeta está en .gitignore y el botón no aparece en el Space).
+    """
+    import json
+    from datetime import datetime
+    from pathlib import Path
+
+    from voleyar.juego.gestos import clasificar
+
+    if EN_SPACE:
+        return "En la versión en línea no se guardan fotos."
+    s = sesiones.obtener(clave)
+    with s.cerrojo:
+        j = s.juego
+        res = None if j is None else j.ultimo_res
+        if res is None:
+            return "Primero pulsa **Empezar** en el video."
+        carpeta = Path(carpeta or CARPETA_FOTOS)
+        carpeta.mkdir(parents=True, exist_ok=True)
+        nombre = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+        cv2.imwrite(str(carpeta / f"{nombre}_imagen.png"), res.imagen)
+        datos = {"espejo": j.config.espejo, "manos": {}}
+        for lado, r in res.manos.items():
+            if r.mascara_mano is not None:
+                cv2.imwrite(str(carpeta / f"{nombre}_mano{lado:+d}.png"), r.mascara_mano)
+            if r.componente is not None:
+                cv2.imwrite(str(carpeta / f"{nombre}_piel{lado:+d}.png"), r.componente)
+            a = r.analisis
+            datos["manos"][str(lado)] = {
+                "hay_mano": bool(r.hay_mano), "presente": r.presente,
+                "motivos": list(r.validacion.motivos) if r.validacion is not None else None,
+                "dedos_casco": a.n_dedos if a else None, "dedos_estables": r.dedos_estables,
+                "dedos_anillo": a.n_anillo if a else None,
+                "angulos_anillo": a.angulos_anillo if a else None,
+                "gesto": clasificar(a, r.dedos_estables) if a else None,
+                "centro_palma": list(map(float, a.centro_palma)) if a else None,
+                "radio_palma": float(a.radio_palma) if a else None,
+            }
+        (carpeta / f"{nombre}_datos.json").write_text(json.dumps(datos, indent=2, ensure_ascii=False))
+    return f"Foto guardada en `{carpeta.name}/` (solo en tu computador)."
 
 
 def guardar_ajustes(clave: str, dificultad: str, puntos: int, usar_cal: bool, espejo: bool = True) -> None:
@@ -449,21 +549,26 @@ def construir(demo: gr.Blocks) -> None:
     with gr.Column(visible=False, elem_classes="pantalla-juego") as p_juego:
         with gr.Row():
             with gr.Column(scale=3, min_width=260):
-                gr.Markdown("**1.** Pulsa **Empezar** en el video.  \n**2.** Palma sobre tu recuadro y **¡Listo!**",
+                gr.Markdown("Pulsa **Empezar** en el video y golpea el balón con la mano o con lo que quieras.",
                             elem_classes="nota")
-                b_listo = gr.Button("¡Listo!", variant="primary", elem_classes="boton-medio")
                 with gr.Row():
                     b_pausa = gr.Button("Pausa / Seguir")
                     b_reini = gr.Button("Reiniciar")
                 with gr.Row():
                     b_revancha = gr.Button("Revancha")
-                    b_piel = gr.Button("Recalibrar piel")
-                b_menu = gr.Button("Menú principal")
+                    b_menu = gr.Button("Menú principal")
                 vista = gr.Dropdown(OPCIONES_VISTA, value="juego", label="¿Qué quieres ver?")
                 with gr.Row():
-                    b_menos = gr.Button("−", min_width=60)
-                    b_mas = gr.Button("+", min_width=60)
-                param = gr.Markdown(elem_classes="nota")
+                    b_menos = gr.Button("−", min_width=60, interactive=False)
+                    b_mas = gr.Button("+", min_width=60, interactive=False)
+                param = gr.Markdown(_texto_param(None, "juego"), elem_classes="nota")
+                with gr.Row(visible=not EN_SPACE):  # solo en tu computador: las fotos no salen de él
+                    b_foto = gr.Button("Guardar foto de mi mano", size="sm")
+                foto_msg = gr.Markdown(elem_classes="nota")
+                datos = gr.Markdown(visible=False, elem_classes="nota")
+                graficas = gr.Image(show_label=False, interactive=False, visible=False, container=False,
+                                    show_download_button=False, show_fullscreen_button=False)
+                reloj_tema = gr.Timer(1.0)
             with gr.Column(scale=9):
                 video = WebRTC(label="Voley AR", mode="send-receive", modality="video", mirror_webcam=False,
                                track_constraints=VIDEO_JUEGO, rtc_configuration=configuracion_rtc(),
@@ -485,13 +590,14 @@ def construir(demo: gr.Blocks) -> None:
 
     video.stream(VideoStreamHandler(frame_juego, fps=30, skip_frames=True), inputs=[video, clave], outputs=[video],
                  concurrency_limit=CONCURRENCIA_VIDEO, send_input_on="submit")
-    for b, nombre in ((b_listo, "listo"), (b_pausa, "pausa"), (b_reini, "reiniciar"), (b_revancha, "revancha"),
-                      (b_piel, "piel")):
+    for b, nombre in ((b_pausa, "pausa"), (b_reini, "reiniciar"), (b_revancha, "revancha")):
         b.click(accion(nombre), clave, None)
     b_menu.click(volver_al_menu, clave, [chip, *pantallas])
-    vista.change(elegir_vista, [clave, vista], param)
-    b_menos.click(cambiar(-1), [clave, vista], param)
-    b_mas.click(cambiar(1), [clave, vista], param)
+    vista.change(elegir_vista, [clave, vista], [param, b_menos, b_mas])
+    b_menos.click(cambiar(-1), [clave, vista], [param, b_menos, b_mas])
+    b_mas.click(cambiar(1), [clave, vista], [param, b_menos, b_mas])
+    b_foto.click(guardar_foto_mano, clave, foto_msg)
+    reloj_tema.tick(datos_tema, clave, [datos, graficas, vista], show_progress="hidden")
 
     video_cal.stream(VideoStreamHandler(frame_calibracion, fps=15, skip_frames=True), inputs=[video_cal, clave],
                      outputs=[video_cal], concurrency_limit=CONCURRENCIA_VIDEO, send_input_on="submit")

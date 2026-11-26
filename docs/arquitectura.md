@@ -143,8 +143,56 @@ En el navegador (y en el Space) la cámara llega como **video por WebRTC** (fast
   escena vista a través del tema (máscara, bordes, retroproyección, profundidad…), del mismo tamaño, y unas líneas
   con sus números reales.
 - **Orden de dibujo:** el bucle aplica el lente **antes** de dibujar la cancha, la red y el balón, así que el juego
-  sigue encima. Al final se agrega una tarjeta translúcida tipo HUD con los datos.
+  sigue encima. Los datos y las gráficas del tema (`vistas.panel`) van fuera de la cancha: una franja debajo del
+  video en la ventana y la columna izquierda en la web (`juego_web.datos_tema`, cada segundo). Nada tapa el balón.
 - **Ajuste:** cada tema tiene un `Parametro` (por ejemplo `config.tam_cierre`) que `[`/`]` o −/+ recorren. Como el
   pipeline lee `config` en cada frame, el cambio se ve en el frame siguiente.
 - **Transformers:** su lente dispara Depth Anything y OWLv2. En escritorio van en hilos; en la web, una llamada cada
   2 s y solo mientras se mira ese tema.
+
+## 11. Golpe con cualquier objeto: los temas en cadena
+
+`voleyar/core/movimiento.py` (`AnalizadorMovimiento.aplicar`, ~1.3 ms por frame a 320 px):
+
+```
+frame → suavizado (filtros) → histograma de gris vs. referencia (Bhattacharyya > 0.30: cambio de luz → se reinicia MOG2)
+      → MOG2 (α = 1/900 tras 15 frames de calentamiento: lo quieto ≈ 3 s después es entorno)
+      → |frame − fondo|, umbral T = max(Otsu, 18), y además primer plano de MOG2
+      → apertura 3 px + cierre 5 px → componentes conexas (área ≥ 0.15 %) → dilatación = zona de golpe (0-14 px)
+      → se descartan las que caen > 50 % en un recuadro de cara agrandado (Viola-Jones)
+```
+
+`toque_en_balon` busca qué objeto cubre el disco del balón proyectado (radio × 1.35); desde el 12 % hay toque.
+`Juego._contacto` añade:
+
+- **Transformers:** `cercania` compara la mediana de la disparidad de Depth Anything dentro del objeto con la de la
+  escena (normalizada por el rango p5-p95). Por debajo de `cercania_min` (0.10) el toque no cuenta.
+- **Histogramas:** `Juego._elegir_color_balon` calcula cada 15 frames `histograma_tono` (180 bins, solo S ≥ 60 y
+  V ≥ 50, como fracción de toda la imagen) y `color_de_contraste` elige entre seis colores el de menor masa en ±12 de
+  tono. Cambia solo si el nuevo tiene menos del 60 % de la masa del actual y pasaron 2 s.
+- **Filtros:** `rapidez_por_puntos` busca esquinas de Shi-Tomasi (matriz de estructura con derivadas de Sobel) cerca
+  del objeto en el frame anterior y las sigue con Lucas-Kanade piramidal (pirámide gaussiana), con comprobación de ida
+  y vuelta (error < 1 px). El percentil 75 del desplazamiento, dividido por el tiempo entre frames, da la rapidez en
+  anchos de imagen por segundo: desde 0.5 empieza a sumar potencia y en 1.6 llega al máximo. (Antes se intentó medir
+  el desenfoque por movimiento, pero una webcam con buena luz casi no difumina.)
+- **Caracterización (gestos):** `voleyar/juego/gestos.py` clasifica la mano con el mayor de dos conteos de dedos
+  (defectos del casco convexo, estables en 5 frames, y `dedos_por_anillo`: arcos de piel en tres círculos de 1.5, 1.8
+  y 2.1 radios de palma, mediana) y, si son dos, con el ángulo entre ellos (> 35° = pulgar e índice; si no, ✌).
+  `LectorGestos` dispara un gesto tras 0.5 s con la palma casi quieta (< 0.5 radios por frame), tolera hasta 3
+  frames sueltos mal leídos y lo dispara una sola vez hasta que cambie. "Guardar foto de mi mano" (solo en local,
+  carpeta `capturas_mano/`, fuera de git) guarda frame, máscaras y lecturas para afinar con fotos reales.
+- **Reloj o pulsera (aprendido de fotos reales):** la correa separa la mano del antebrazo y la región que entra por
+  abajo es solo un muñón. `seleccionar_mano_pantalla` une la mano de arriba con ese muñón (`_mano_sobre_el_antebrazo`
+  + `_puente`) si están alineados y a menos de un ancho de muñeca; si lo de abajo es solo una franja delgada en el
+  borde, elige la región grande. Sin antebrazo visible, el brazo se supone hacia abajo para no contar la muñeca como
+  dedo. Con 25 fotos reales (☝, 👍, ✌, ✋) se pasó de 0/25 a 25/25 gestos bien leídos; la ✌ real abre 31-42°, por
+  eso el límite de la L es 55°. Qué
+  gestos valen depende del momento: sacar solo en el saque propio, revancha solo al terminar.
+- **Calibración:** la velocidad `vz` de la mano hacia la cámara es la pendiente de `Z = f·W/w` en los últimos
+  0.3 s. Con `vz ≤ −60 cm/s` el golpe es un remate.
+- **Caracterización:** `tipo_de_golpe` usa los dedos estables si la mano reconocida es la que toca (sus cajas se
+  cruzan). Si no hay mano, usa el área relativa al balón y la solidez del objeto.
+
+`Partida.velocidad_golpe` usa `PERFILES_GOLPE` (profundidad del bote y altura máxima) para remate, fuerte, suave y
+bloqueo; el golpe normal sigue dependiendo de la fuerza y de la velocidad de lo que golpea. `Juego.stats` cuenta
+remates, toques descartados por lejanía, frames con la cara descartada y golpes por tipo, y las lentes lo muestran.

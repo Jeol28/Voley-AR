@@ -2,15 +2,16 @@
 
 Una cámara web y dos jugadores lado a lado frente a ella (o uno contra la IA).
 La mitad izquierda de la imagen es del jugador 1, la derecha del jugador 2, y la
-cancha, la red y el balón se dibujan encima. Lo único físico son las manos.
+cancha, la red y el balón se dibujan encima. Golpea cualquier cosa que se mueva
+(una mano, un cuaderno…); lo quieto es entorno.
 
 Se juega como cualquier juego: un menú de inicio (contra la IA, 2 jugadores,
-ajustes), la calibración de la piel, la partida, la pausa (ESC) y la revancha.
+ajustes), la partida, la pausa (ESC) y la revancha. No hay que calibrar la piel:
+el juego la aprende solo de las manos que reconoce.
 Todo se puede elegir con el mouse o con las teclas que aparecen en los botones.
 
 Atajos durante la partida:
-    ESPACIO  capturar el color de la piel (al inicio)
-    ESC      pausa (seguir, recalibrar la piel, reiniciar, menú, salir)
+    ESC      pausa (seguir, reiniciar, menú, salir)
     V / B    siguiente / anterior tema: cómo te ve el juego, en vivo (calibración, filtros,
              histogramas, umbralización, morfología, segmentación, caracterización, transformers)
     [ / ]    cambiar el parámetro del tema que se está viendo
@@ -31,6 +32,7 @@ import cv2
 import numpy as np
 
 from voleyar.core import calibracion as cal
+from voleyar.core import config as cfgc
 from voleyar.core import pipeline as pl
 from voleyar.juego import render_ar as ra
 from voleyar.juego.asincrono import TrabajadorAsincrono
@@ -71,11 +73,21 @@ PUNTOS = (7, 11, 15)
 
 @dataclass
 class EstadoJugador:
-    piel: object = None
+    piel: object = None  # histogramas de la piel, aprendidos solos de la mano confirmada
+    n_aprendizajes: int = 0
     z_ref: float | None = None  # distancia de referencia (cm) al plano de juego
     muestras: list = field(default_factory=list)
     delante: bool | None = None  # Depth Anything: mano delante de la cara
     valida: bool | None = None
+    contacto: object = None  # movimiento.Toque del último frame
+    tipo: str | None = None  # tipo de golpe que daría ahora (caracterización)
+    cercania: float | None = None  # Depth Anything: cuánto más cerca está lo que toca el balón
+    lejos: bool = False  # lo que toca el balón está detrás (no cuenta)
+    z_hist: list = field(default_factory=list)  # (t, Z cm) de la mano: su velocidad hacia la cámara
+    vz: float | None = None  # cm/s (negativo = hacia la cámara)
+    potencia: float = 0.0  # filtros: qué tan rápido viene lo que toca el balón (0-1)
+    c_prev: np.ndarray | None = None  # centro (px) de lo que tocó el balón en el frame anterior
+    t_prev: float = 0.0
 
 
 class Juego:
@@ -103,11 +115,12 @@ class Juego:
                   "Calibra con `python scripts/calibrar_camara.py` o desde la UI.")
         self.config = pl.ConfigPipeline(usar_calibracion=op.calibrado and self.modelo_camara is not None,
                                         espejo=op.espejo and not self.sintetico,
-                                        seguimiento=True)  # presencia estable de cada mano en el tiempo
+                                        seguimiento=True,  # presencia estable de cada mano en el tiempo
+                                        golpe_por_movimiento=True)  # y cualquier objeto que se mueva golpea
         self.estado_pipe = pl.EstadoPipeline()
         self.jugadores = {lado: EstadoJugador() for lado in self.lados}
         self.partida = self._crear_partida()
-        self.fase = "calibrar_piel"
+        self.fase = "jugando"  # se juega de una: la piel se aprende sola
         self.pantalla = "menu" if op.menu else "juego"  # menu, ajustes o juego
         self.pausado = False
         self.botones: list = []
@@ -124,6 +137,23 @@ class Juego:
         self.owl = None
         self._t_prev = time.perf_counter()
         self.eventos_totales: list[str] = []
+        self.dt_frame = 1 / 30  # tiempo entre los dos últimos frames procesados
+        # Caracterización: gestos de la mano para sacar, pausar, pedir revancha y cambiar de tema
+        from voleyar.juego.gestos import LectorGestos
+
+        self.gestos = LectorGestos()
+        self.progreso_gestos: dict = {}
+        self.vista_por_gesto = False  # la web sincroniza su menú "¿Qué quieres ver?" cuando cambia por gesto
+        # Histogramas: el balón se pinta del color que menos hay en el cuarto ("auto") o del que se elija
+        self.color_modo = "auto"
+        self.color_balon = "naranja"
+        self.masas_color: dict[str, float] = {}
+        self.hist_tono = None
+        self._t_color = -10.0
+        self.lineas_tema: list[str] = []  # datos del tema que se está viendo (para el panel)
+        self.graficas_tema: list = []
+        # Lo que cada tema cambió en la partida (se muestra en su lente)
+        self.stats = {"remates": 0, "lejos": 0, "cara": 0, "rapidos": 0, "tipos": {}}
 
     # compatibilidad con la UI: piel del jugador 1
     @property
@@ -132,7 +162,7 @@ class Juego:
 
     # ------------------------------------------------------------ utilidades
     def _modo_texto(self) -> str:
-        return "con calibración" if self.config.usar_calibracion else "SIN calibración"
+        return "" if self.config.usar_calibracion and self.modelo_camara is not None else "cámara sin calibrar"
 
     def _tarea_profundidad(self, img):
         from voleyar.core import transformers_models as tm
@@ -180,7 +210,7 @@ class Juego:
         self.partida = self._crear_partida()
         if self.sintetico and len(self.fuente.jugadores) > 1:
             self.fuente.jugadores[1].mano_visible = self.op.modo == "2j"
-        self.fase = "jugando" if all(j.piel is not None for j in self.jugadores.values()) else "calibrar_piel"
+        self.fase = "jugando"
         self.pantalla, self.pausado, self.t_cuenta = "juego", False, None
 
     def _crear_partida(self) -> Partida:
@@ -236,12 +266,6 @@ class Juego:
             self.pausado = False
         elif accion == "revancha":
             self.nueva_partida()
-        elif accion == "piel":
-            self.fase, self.pausado = "calibrar_piel", False
-            for j in self.jugadores.values():
-                j.piel, j.z_ref, j.muestras = None, None, []
-        elif accion == "listo" and self.fase == "calibrar_piel":
-            self.t_cuenta = time.perf_counter() + 1.5
         elif accion == "owl":
             self.usar_owl = not self.usar_owl
         return True
@@ -266,7 +290,7 @@ class Juego:
             return [Boton("Revancha", "revancha", "r", principal=True), Boton("Menú principal", "menu", "m"),
                     Boton("Salir", "salir", "q")]
         if self.pausado:
-            return [Boton("Seguir", "seguir", "s", principal=True), Boton("Recalibrar la piel", "piel", "p"),
+            return [Boton("Seguir", "seguir", "s", principal=True),
                     Boton("Reiniciar la partida", "reiniciar", "r"), Boton("Menú principal", "menu", "m"),
                     Boton("Salir", "salir", "q")]
         return []
@@ -290,7 +314,7 @@ class Juego:
             return dibujar_menu(img, self.partida.mensaje, self.botones, marcador, oscuro=0.5)
         if self.pausado:
             if self.op.interfaz == "web":
-                return dibujar_cartel(img, "Pausa", "Pulsa Seguir para continuar")
+                return dibujar_cartel(img, "Pausa", "Haz una L con pulgar e índice, o pulsa Seguir")
             return dibujar_menu(img, "Pausa", self.botones, oscuro=0.5)
         return img
 
@@ -302,6 +326,7 @@ class Juego:
         ahora = time.perf_counter()
         dt = ahora - self._t_prev
         self._t_prev = ahora
+        self.dt_frame = dt
         self.fps = 0.9 * self.fps + 0.1 * (1.0 / max(dt, 1e-3)) if self.n_frame else 0.0
         self.n_frame += 1
         if self.pantalla in ("menu", "ajustes"):
@@ -318,13 +343,6 @@ class Juego:
             from voleyar.juego.vistas import lente
 
             img, lineas_tema = lente(self, res, img, self.vista)
-        if self.fase == "calibrar_piel":
-            img = self._paso_calibrar_piel(frame, res, img, ahora)
-            if self.vista != "juego":
-                from voleyar.juego.vistas import tarjeta
-
-                img = tarjeta(self, img, self.vista, lineas_tema)
-            return img
 
         # --- profundidad (hilo aparte, cada N frames) -----------------------------
         mapa = self._modelos(res, ahora)
@@ -341,34 +359,67 @@ class Juego:
         for lado in self.lados:
             r = res.manos[lado]
             j = self.jugadores[lado]
+            contacto, vel_objeto = self._contacto(lado, res, ahora)
+            tipo = j.tipo or "golpe"
             if r.hay_mano:
                 j.valida = self._validar(lado, r)
                 gesto, fuerza = r.gesto  # suavizado en el tiempo
-                entradas[lado] = EntradaJugador(r.rayo, r.punto_plano, r.velocidad, fuerza, gesto, j.valida)
+                # si lo que toca es algo en movimiento, vale aunque la mano esté fuera del plano
+                entradas[lado] = EntradaJugador(r.rayo, r.punto_plano, r.velocidad, fuerza, gesto,
+                                                None if contacto.toca else j.valida, toca=contacto.toca, tipo=tipo,
+                                                potencia=j.potencia)
+            elif contacto.toca:  # no es una mano, pero algo que no es el entorno toca el balón
+                j.valida = None
+                entradas[lado] = EntradaJugador(None, None, vel_objeto, 0.8, "objeto", None, toca=True, tipo=tipo,
+                                                potencia=j.potencia)
             else:
                 entradas[lado] = None
+        if res.mov is not None and res.mov.descartados_cara:
+            self.stats["cara"] += 1  # frames en los que la cara se movió y no se contó
         if self.usar_owl:
             entradas = self._entradas_owl(res, entradas)
+        self._gestos(res, ahora)
+        self._aprender_piel(res)
 
         # --- partida y render ---------------------------------------------------------------
         if not self.pausado:
-            ev = self.partida.actualizar(dt, entradas.get(-1), entradas.get(1))
+            n_marcas = len(self.partida.marcas)
+            # Con la fuente sintética el tiempo de la partida avanza fijo (1/30 s por frame): así las pruebas dan
+            # lo mismo aunque el computador esté ocupado. Con la cámara se usa el tiempo real.
+            ev = self.partida.actualizar(1 / 30 if self.sintetico else dt, entradas.get(-1), entradas.get(1))
             self.eventos_totales += ev
+            if len(self.partida.marcas) > n_marcas and getattr(self.partida, "ultimo_tipo", None) \
+                    and self.partida.marcas[-1].valido:
+                t = self.partida.ultimo_tipo["tipo"]
+                self.stats["tipos"][t] = self.stats["tipos"].get(t, 0) + 1
+                if t == "remate":
+                    self.stats["remates"] += 1
+                if self.partida.ultimo_tipo.get("potencia", 0.0) >= 0.5:
+                    self.stats["rapidos"] += 1
+        self._elegir_color_balon(res, ahora)
+        from voleyar.core.histogramas import COLORES_BALON
+
         ia_xy = self.partida.ia.pos if self.op.modo == "ia" else None
         img = ra.dibujar_escena_pantalla(img, res.pose, res.modelo, self.partida.balon.pos, ia_xy,
                                          self.partida.ia.altura_golpe, self.partida.marcas, self.partida.t,
-                                         giro=int(self.partida.t * 8))
+                                         giro=int(self.partida.t * 8),
+                                         color_balon=COLORES_BALON[self.color_balon][1])
         mensaje = "" if self.partida.estado == "fin" else self.partida.mensaje
         m = self.partida.marcador
         n = self.partida.nombres
         ra.dibujar_hud(img, (m[JUGADOR], m[RIVAL]), mensaje, self._modo_texto(), self.fps, "", None, None,
                        "OWLv2" if self.usar_owl else "clásico", (n[JUGADOR], n[RIVAL]))
         self._estado_jugadores(img, res)
-        if self.vista != "juego":
-            from voleyar.juego.vistas import tarjeta
+        self.lineas_tema = lineas_tema
+        if self.vista != "juego" and self.op.interfaz != "web":
+            # En la ventana, los datos del tema van en una franja DEBAJO del video, no encima de la cancha
+            from voleyar.juego.vistas import panel
 
-            img = tarjeta(self, img, self.vista, lineas_tema)
+            franja = panel(self, self.vista, lineas_tema, img.shape[1], int(img.shape[0] * 0.3))
+            if franja is not None:
+                img = np.vstack([img, franja])
         img = self._dibujar_menu(img)
+        self._dibujar_gestos(img)  # encima de todo, también en la pausa (para poder seguir con un gesto)
         return img
 
     def _modelos(self, res: pl.ResultadoFrame, ahora: float):
@@ -379,7 +430,7 @@ class Juego:
         se mira esa vista, como mucho cada 2 s (en ZeroGPU cada llamada pide la GPU).
         """
         mira = self.vista == "transformers"
-        if self.op.interfaz == "web":
+        if self.op.interfaz == "web" and self.prof is None:
             if mira and ahora - self._t_modelos > 2.0:
                 from voleyar.core import transformers_models as tm
 
@@ -408,6 +459,197 @@ class Juego:
             self.ultimo_owl = self.owl.resultado
         return mapa
 
+    def _gestos(self, res: pl.ResultadoFrame, ahora: float) -> None:
+        """Caracterización en juego: cada mano quieta un segundo con un gesto controla la partida."""
+        p = self.partida
+        self.progreso_gestos = {}
+        for lado in self.lados:
+            permitidos = {"dos_dedos"}
+            if p.estado == "fin":
+                permitidos.add("dedo_arriba")
+            else:
+                permitidos.add("pulgar_indice")
+                if p.estado == "saque" and p.sacador == QUIEN[lado] and p.humano(QUIEN[lado]) and not self.pausado:
+                    permitidos.add("abierta")
+            gesto, prog = self.gestos.actualizar(lado, res.manos[lado], ahora, permitidos)
+            if prog is not None:
+                self.progreso_gestos[lado] = prog
+            if gesto == "abierta":
+                self.eventos_totales += p.sacar(QUIEN[lado])
+            elif gesto == "pulgar_indice":
+                self.accion("pausa")
+            elif gesto == "dedo_arriba":
+                self.accion("revancha")
+            elif gesto == "dos_dedos":
+                self.accion("vista_sig")
+                self.vista_por_gesto = True
+
+    def _dibujar_gestos(self, img: np.ndarray) -> None:
+        """Un anillo que se va llenando alrededor de la mano mientras se sostiene un gesto."""
+        from voleyar.juego.gestos import NOMBRES
+
+        t = max(14, img.shape[0] // 32)
+        for prog in self.progreso_gestos.values():
+            c = (int(prog.centro[0]), int(prog.centro[1]))
+            r = int(max(prog.radio * 1.6, 24))
+            cv2.circle(img, c, r, vis.BGR_GRAFITO, 6, cv2.LINE_AA)
+            cv2.ellipse(img, c, (r, r), -90, 0, 360 * prog.fraccion, vis.BGR_NARANJA, 6, cv2.LINE_AA)
+            texto = NOMBRES[prog.gesto] + ("!" if prog.fraccion >= 1 else "…")
+            vis.poner_texto(img, texto, (c[0] - r, max(0, c[1] - r - t - 10)), t, vis.BGR_NEUTRO, negrita=True,
+                            fondo=vis.BGR_GRAFITO)
+
+    def _elegir_color_balon(self, res: pl.ResultadoFrame, ahora: float) -> None:
+        """Histogramas en juego: el balón toma el color que menos aparece en el cuarto, para verse siempre.
+
+        Cada 15 frames se calcula el histograma de tono de la imagen (solo píxeles con
+        color). El balón cambia de color solo si otro resalta claramente más (su tono
+        aparece menos del 60 % de lo que aparece el actual) y han pasado 2 s desde el
+        último cambio: así no parpadea.
+        """
+        from voleyar.core import histogramas as his
+
+        if self.color_modo != "auto":
+            self.color_balon = self.color_modo
+        if self.n_frame % 15 and self.hist_tono is not None:
+            return
+        self.hist_tono = his.histograma_tono(cv2.resize(res.imagen, (160, 90), interpolation=cv2.INTER_AREA))
+        mejor, self.masas_color = his.color_de_contraste(self.hist_tono)
+        if self.color_modo != "auto" or mejor == self.color_balon:
+            return
+        actual = self.masas_color[self.color_balon]
+        if actual > 0.01 and self.masas_color[mejor] < 0.6 * actual and ahora - self._t_color >= 2.0:
+            self.color_balon = mejor
+            self._t_color = ahora
+
+    def _aprender_piel(self, res: pl.ResultadoFrame) -> None:
+        """La piel se aprende sola: histogramas H-S y Cr-Cb de la mano ya confirmada.
+
+        Sin modelo, la piel sale del rango fijo de YCrCb. En cuanto una mano pasa la
+        validación de forma y la histéresis, sus píxeles construyen el histograma
+        (y a partir de ahí se usa retroproyección + Otsu). Se refresca cada
+        ``CADA`` frames mezclando con el anterior para seguir los cambios de luz
+        sin que un frame malo lo eche a perder.
+        """
+        CADA, PESO_NUEVO = 30, 0.3
+        from voleyar.core import histogramas as his
+
+        for lado in self.lados:
+            r, j = res.manos[lado], self.jugadores[lado]
+            if not r.hay_mano or r.presente is not True or r.mascara_mano is None:
+                continue
+            if j.piel is not None and self.n_frame % CADA:
+                continue
+            try:
+                nueva = his.calibrar_piel(res.suavizada, mascara=r.mascara_mano)
+            except ValueError:
+                continue
+            if j.piel is not None:
+                nueva = his.ModeloPiel(cv2.addWeighted(j.piel.hist_hs, 1 - PESO_NUEVO, nueva.hist_hs, PESO_NUEVO, 0),
+                                       cv2.addWeighted(j.piel.hist_crcb, 1 - PESO_NUEVO, nueva.hist_crcb, PESO_NUEVO, 0),
+                                       nueva.n_pixeles)
+            j.piel = nueva
+            j.n_aprendizajes += 1
+
+    def _velocidad_z(self, lado: int, r: pl.ResultadoMano, ahora: float) -> float | None:
+        """Calibración en juego: velocidad de la mano hacia la cámara (Z = f·W/w, en cm/s)."""
+        j = self.jugadores[lado]
+        if r.hay_mano and r.distancia_cm:
+            j.z_hist.append((ahora, float(r.distancia_cm)))
+        else:
+            j.z_hist.clear()
+        j.z_hist[:] = [(t, z) for t, z in j.z_hist if ahora - t <= 0.3]
+        if len(j.z_hist) >= 3 and j.z_hist[-1][0] - j.z_hist[0][0] >= 0.08:
+            t, z = np.array(j.z_hist).T
+            j.vz = float(np.polyfit(t - t[0], z, 1)[0])
+        else:
+            j.vz = None
+        return j.vz
+
+    def _contacto(self, lado: int, res: pl.ResultadoFrame, ahora: float):
+        """¿Qué objeto en movimiento (no el entorno, no la cara) toca el balón en la mitad de este jugador?
+
+        Devuelve el toque y la velocidad del objeto en unidades de cancha (por el
+        desplazamiento de su centroide entre frames); deja el tipo de golpe en el jugador.
+        """
+        from voleyar.core import caracterizacion as car
+        from voleyar.core import movimiento as movi
+
+        j, r = self.jugadores[lado], res.manos[lado]
+        pos = self.partida.balon.pos
+        c = cal.proyectar(np.asarray(pos)[None], res.pose, res.modelo)[0]
+        r_px = ra.radio_en_pixeles(pos, res.pose, res.modelo)
+        w = res.imagen.shape[1]
+        if (c[0] < w / 2) != (lado < 0):  # el balón se ve en la otra mitad
+            toque = movi.Toque(False, motivo="balón en la otra mitad")
+        else:
+            toque = movi.toque_en_balon(res.mov, c, r_px)
+        # Transformers: lo que está detrás de la escena (alguien que pasa al fondo) no golpea
+        j.cercania, lejos = None, False
+        mapa = self._mapa_reciente()
+        if toque.objeto is not None and mapa is not None and self.config.cercania_min > 0:
+            j.cercania = movi.cercania(mapa, res.mov, toque.objeto)
+            if toque.toca and j.cercania is not None and j.cercania < self.config.cercania_min:
+                lejos = True
+                toque = movi.Toque(False, toque.fraccion, toque.objeto, "está lejos, detrás de la escena")
+        if lejos and not j.lejos:
+            self.stats["lejos"] += 1
+        j.lejos = lejos
+        # Velocidad del objeto en la imagen → unidades de cancha
+        vel = np.zeros(2)
+        if toque.objeto is not None:
+            cen = toque.objeto.centroide
+            if j.c_prev is not None and 0 < ahora - j.t_prev < 0.3:
+                d = (cen - j.c_prev) / (ahora - j.t_prev) * (cfgc.RADIO_BALON / max(r_px, 1.0))
+                vel = np.clip(np.array([d[0], -d[1]]), -150.0, 150.0)  # en la imagen y crece hacia abajo
+            j.c_prev, j.t_prev = cen, ahora
+        else:
+            j.c_prev = None
+        # Caracterización: ¿es la mano reconocida o un objeto? ¿qué golpe es?
+        vz = self._velocidad_z(lado, r, ahora)
+        es_mano = r.hay_mano and (toque.objeto is None or self._mano_en(r, toque.objeto))
+        if es_mano:
+            n = r.dedos_estables if r.dedos_estables is not None else r.analisis.n_dedos
+            j.tipo = car.tipo_de_golpe(int(n), vz, remate_vz=self.config.remate_vz)
+        elif toque.objeto is not None:
+            o = toque.objeto
+            j.tipo = car.tipo_de_golpe(area_rel=o.area / (np.pi * r_px ** 2), solidez=o.solidez)
+        else:
+            j.tipo = None
+        # Filtros: la rapidez de los puntos que se siguen decide la fuerza del golpe
+        j.potencia = 0.0
+        if toque.objeto is not None:
+            j.potencia = float(np.clip(self.rapidez(toque.objeto) * self.config.potencia_velocidad, 0.0, 1.0))
+        j.contacto = toque
+        return toque, vel
+
+    def rapidez(self, obj) -> float:
+        """Qué tan rápido va ``obj``, de 0 (lento) a 1 (muy rápido), en anchos de imagen por segundo."""
+        dt = max(self.dt_frame, 1 / 60)
+        v = obj.desplazamiento / dt
+        c = self.config
+        return float(np.clip((v - c.rapidez_min) / (c.rapidez_max - c.rapidez_min), 0.0, 1.0))
+
+    @staticmethod
+    def _mano_en(r: pl.ResultadoMano, obj) -> bool:
+        """¿La mano reconocida es (parte de) ese objeto en movimiento? Sus cajas se cruzan."""
+        if r.analisis is None:
+            return False
+        hx, hy, hw, hh = cv2.boundingRect(r.analisis.contorno)
+        ox, oy, ow, oh = obj.caja
+        return hx < ox + ow and ox < hx + hw and hy < oy + oh and oy < hy + hh
+
+    def _mapa_reciente(self):
+        """Último mapa de Depth Anything si tiene menos de 1.5 s (si no, no se filtra por profundidad)."""
+        if self.config.cercania_min <= 0:
+            return None
+        if self.prof is not None:
+            if self.prof.resultado is not None and self.prof.edad < 1.5:
+                return self.prof.resultado.mapa
+            return None
+        if self.ultimo_prof is not None and time.perf_counter() - self._t_modelos < 1.5:
+            return self.ultimo_prof.mapa
+        return None
+
     def _estado_jugadores(self, img: np.ndarray, res: pl.ResultadoFrame) -> None:
         """Gesto, distancia y validez de cada mano, en la parte alta de su mitad."""
         h, w = img.shape[:2]
@@ -415,12 +657,12 @@ class Juego:
         for lado in self.lados:
             r, j = res.manos[lado], self.jugadores[lado]
             if not r.hay_mano:
-                quieta = r.validacion is not None and r.validacion.valida and r.presente is False
-                texto = "mueve la mano para empezar" if quieta else "sin mano"
-            else:
-                z = f"{r.distancia_cm:.0f} cm" if r.distancia_cm else "—"
-                ref = "midiendo…" if j.z_ref is None else f"plano a {j.z_ref:.0f} cm"
-                texto = f"{r.gesto[0]} · {z} ({ref})"
+                texto = "golpea con la mano o con lo que quieras"
+            else:  # el golpe que daría ahora su mano
+                from voleyar.core.caracterizacion import TIPOS_GOLPE, tipo_de_golpe
+
+                n = r.dedos_estables if r.dedos_estables is not None else r.analisis.n_dedos
+                texto = "tu golpe: " + TIPOS_GOLPE[j.tipo if j.tipo else tipo_de_golpe(int(n))].lower()
             x = 16 if lado < 0 else w // 2 + 16
             vis.poner_texto(img, texto, (x + 22, int(h * 0.12)), tam, vis.BGR_NEUTRO, fondo=vis.BGR_GRAFITO)
             color = vis.BGR_NEUTRO if j.valida is None else (vis.BGR_VERDE if j.valida else vis.BGR_ROJO)
@@ -450,52 +692,6 @@ class Juego:
                                           "OWLv2", prev.valida if prev else None)
         return nuevas
 
-    def _paso_calibrar_piel(self, frame, res, img, ahora) -> np.ndarray:
-        H, W = img.shape[:2]
-        tam = max(18, H // 26)
-        rects = {lado: pl.recuadro_piel(img.shape, lado) for lado in self.lados}
-        if self.sintetico:  # las manos virtuales se colocan solas sobre su recuadro
-            K = res.modelo.K
-            for lado, (x, y, w, h) in rects.items():
-                jug = self.fuente.jugadores[0 if lado < 0 else 1]
-                u, v = x + w / 2, y + h / 2
-                jug.mano = ((u - K[0, 2]) / K[0, 0] * jug.distancia, (v - K[1, 2]) / K[1, 1] * jug.distancia)
-            if self.t_cuenta is None:
-                self.t_cuenta = ahora + 0.5
-        for lado, (x, y, w, h) in rects.items():
-            cv2.rectangle(img, (x, y), (x + w, y + h), vis.BGR_NARANJA, 3, cv2.LINE_AA)
-            nombre = self.partida.nombres[QUIEN[lado]]
-            vis.poner_texto(img, nombre, (x, y + h + 8), tam - 2, vis.BGR_NEUTRO, fondo=vis.BGR_GRAFITO)
-        if len(self.lados) == 2:
-            cv2.line(img, (W // 2, 0), (W // 2, H), vis.BGR_NEUTRO, 1, cv2.LINE_AA)
-        vis.poner_texto(img, "Calibración de la piel", (20, 18), tam + 6, vis.BGR_NEUTRO, True, fondo=vis.BGR_GRAFITO)
-        quien = "Cada jugador cubre su recuadro" if len(self.lados) == 2 else "Cubre el recuadro"
-        web = self.op.interfaz == "web"
-        if len(self.lados) == 2:
-            lineas = [f"{quien} con la palma",
-                      f"a la distancia de juego y {'pulsen ¡Listo!' if web else 'presionen ESPACIO'}"]
-        else:
-            lineas = ["Cubre el recuadro con la palma",
-                      f"a la distancia de juego y {'pulsa ¡Listo!' if web else 'presiona ESPACIO'}"]
-        for k, linea in enumerate(lineas):
-            vis.poner_texto(img, linea, (20, 24 + (tam + 14) * (k + 1)), tam, vis.BGR_NEUTRO, fondo=vis.BGR_GRAFITO)
-        if self.t_cuenta is not None:
-            falta = self.t_cuenta - ahora
-            if falta <= 0:
-                try:
-                    for lado, rect in rects.items():
-                        self.jugadores[lado].piel = pl.calibrar_piel_en_frame(frame, rect, self.modelo_camara,
-                                                                              self.config)
-                    self.fase = "jugando"
-                    self.partida.reiniciar()
-                except ValueError as e:
-                    print("Calibración de piel fallida:", e)
-                self.t_cuenta = None
-            else:
-                vis.poner_texto(img, f"{falta:.1f}", (W // 2 - 20, H // 2 - 30), tam + 24, vis.BGR_NARANJA, True,
-                                fondo=vis.BGR_GRAFITO)
-        return img
-
     # ------------------------------------------------------------ teclado/mouse
     def tecla(self, k: int) -> bool:
         """Procesa una tecla. Devuelve False para salir."""
@@ -513,8 +709,6 @@ class Juego:
             return True
         if k == 27:
             return self.accion("pausa")
-        if k == ord(" "):
-            return self.accion("listo")
         acciones = {ord("v"): "vista_sig", ord("d"): "vista_sig", ord("b"): "vista_ant", ord("]"): "param_mas",
                     ord("["): "param_menos", ord("c"): "calibracion", ord("o"): "owl", ord("p"): "pausa",
                     ord("r"): "reiniciar", ord("q"): "pausa", 9: "vista_sig"}

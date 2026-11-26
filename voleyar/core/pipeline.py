@@ -33,6 +33,7 @@ from voleyar.core import config as cfgc
 from voleyar.core import filtros as fil
 from voleyar.core import histogramas as his
 from voleyar.core import morfologia as mor
+from voleyar.core import movimiento as movi
 from voleyar.core import segmentacion as seg
 from voleyar.core import umbralizacion as umb
 
@@ -64,7 +65,21 @@ class ConfigPipeline:
     memoria_caras: int = 90  # frames que se recuerda una cara perdida (la mano la tapa al jugar)
     seguimiento: bool = False  # presencia estable en el tiempo (histéresis + movimiento); el juego lo activa
     exigir_movimiento: bool = True  # con seguimiento: una mano nueva tiene que haberse movido
+    golpe_por_movimiento: bool = False  # calcular siempre el primer plano en movimiento: con él golpea cualquier objeto
     area_min_frac: float = 0.004  # área mínima de la mano como fracción de la imagen
+    # --- qué se mueve y qué toca el balón (voleyar/core/movimiento.py) ---
+    umbral_luz: float = 0.30  # distancia de Bhattacharyya entre histogramas desde la que es un cambio de luz
+    mov_t_min: int = 18  # mínimo del umbral de Otsu sobre |frame - fondo|
+    mov_apertura: int = 3  # px (imagen de 320): quita el ruido suelto
+    mov_cierre: int = 5  # px (imagen de 320): une el objeto
+    potencia_velocidad: float = 1.0  # filtros: cuánto más fuerte sale un golpe rápido; 0 = apagado
+    rapidez_min: float = 0.5  # anchos de imagen por segundo desde los que un golpe empieza a ser rápido
+    rapidez_max: float = 1.6  # anchos de imagen por segundo para la fuerza máxima
+    mov_alcance: int = 0  # px (imagen de 320): dilatación de cada objeto = zona de golpe más grande (0 = su tamaño)
+    mov_area_min: float = 0.0015  # área mínima de un objeto en movimiento (fracción de la imagen)
+    ignorar_caras_golpe: bool = True  # la cara (Viola-Jones) no golpea el balón
+    remate_vz: float = 60.0  # cm/s hacia la cámara (calibración: Z = f·W/w) desde los que es remate
+    cercania_min: float = 0.10  # Depth Anything: lo que no esté más cerca que esto no golpea (0 = no filtrar)
 
 
 @dataclass
@@ -75,7 +90,7 @@ class EstadoPipeline:
     caras_por_lado: dict[int, tuple] = field(default_factory=dict)  # última cara de cada mitad y su frame
     n_frame: int = 0
     seguidores: dict[int, car.SeguidorMano] = field(default_factory=lambda: {lado: car.SeguidorMano() for lado in LADOS})
-    movimiento: seg.DetectorMovimiento = field(default_factory=seg.DetectorMovimiento)
+    movimiento: movi.AnalizadorMovimiento = field(default_factory=movi.AnalizadorMovimiento)
 
 
 @dataclass
@@ -132,7 +147,8 @@ class ResultadoFrame:
     clahe: np.ndarray | None = None
     suavizada: np.ndarray | None = None
     manos: dict[int, ResultadoMano] = field(default_factory=dict)
-    movimiento: np.ndarray | None = None  # primer plano en movimiento (MOG2), si hay seguimiento
+    movimiento: np.ndarray | None = None  # objetos en movimiento (sin la cara): lo que no es el entorno
+    mov: movi.ResultadoMovimiento | None = None  # todo el detalle: luz, Otsu, morfología, objetos
     tiempos_ms: dict[str, float] = field(default_factory=dict)
 
     def mano(self, lado: int) -> ResultadoMano | None:
@@ -232,8 +248,59 @@ def seleccionar_mano_pantalla(mascara: np.ndarray, abajo: np.ndarray, area_min: 
     if not candidatos:
         return None, comp
     elegido = max(tocan, key=cv2.contourArea) if tocan else candidatos[0]
+    mayor = max(candidatos, key=cv2.contourArea)
+    franja = cv2.boundingRect(elegido)[3] < 0.12 * mascara.shape[0]
+    if tocan and franja and cv2.contourArea(mayor) > 4 * cv2.contourArea(elegido) \
+            and _mano_sobre_el_antebrazo(elegido, [mayor], mascara.shape[0]) is None:
+        # lo que toca el borde es solo una franja delgada (un trozo de brazo bajo el reloj): un antebrazo
+        # de verdad entra alto desde abajo. La mano es la región grande.
+        elegido = mayor
+    arriba = _mano_sobre_el_antebrazo(elegido, [c for c in candidatos if c is not elegido], mascara.shape[0])
+    if arriba is not None:  # un reloj, una pulsera o una manga separan la mano del antebrazo: se unen
+        unido = np.zeros_like(mascara)
+        cv2.drawContours(unido, [elegido, arriba], -1, 255, -1)
+        cv2.fillPoly(unido, [_puente(elegido, arriba)], 255)
+        cs_u = seg.contornos(unido, area_min)
+        if cs_u:
+            cv2.drawContours(comp, [cs_u[0]], -1, 255, -1)
+            return cs_u[0], comp  # (el puente no es piel, pero así el corte por la muñeca funciona igual)
     cv2.drawContours(comp, [elegido], -1, 255, -1)
     return elegido, cv2.bitwise_and(comp, mascara)
+
+
+def _mano_sobre_el_antebrazo(antebrazo, otros, alto_imagen: int | None = None):
+    """¿Hay una región justo encima del antebrazo, alineada con él y separada por un hueco corto?
+
+    Pasa con un reloj o una pulsera oscura: la piel de la mano y la del antebrazo
+    quedan en dos regiones. La de abajo toca el borde de la imagen; la mano está
+    encima, a menos de ~un ancho de muñeca. Si lo de abajo es un muñón corto, se acepta
+    que las cajas se solapen un poco (correa inclinada); si es alto, se exige un hueco
+    de verdad: una mano con su brazo justo debajo de una cara que Viola-Jones no vio
+    no debe unirse con ella. Se elige la mayor que cumpla.
+    """
+    x, y, w, h = cv2.boundingRect(antebrazo)
+    # Un muñón corto de antebrazo (bajo el reloj) puede quedar solapado con la mano si la correa va
+    # inclinada; si lo de abajo es alto (ya es una mano con su brazo) se exige un hueco de verdad.
+    corto = alto_imagen is not None and h < 0.3 * alto_imagen
+    hueco_min = -0.3 * h if corto else 2
+    mejor, area_mejor = None, 0.0
+    for c in otros:
+        bx, by, bw, bh = cv2.boundingRect(c)
+        hueco = y - (by + bh)  # de lo más bajo de la otra a lo más alto del antebrazo
+        cruce = min(x + w, bx + bw) - max(x, bx)
+        if hueco_min <= hueco <= max(0.9 * w, 20) and cruce > 0.3 * min(w, bw) and by < y:
+            a = cv2.contourArea(c)
+            if a > area_mejor:
+                mejor, area_mejor = c, a
+    return mejor
+
+
+def _puente(abajo, arriba, banda: int = 12) -> np.ndarray:
+    """Polígono que rellena el hueco entre la parte baja de ``arriba`` y la alta de ``abajo`` (casco convexo)."""
+    pa, pb = arriba.reshape(-1, 2), abajo.reshape(-1, 2)
+    ya, yb = pa[:, 1].max(), pb[:, 1].min()
+    sel = np.vstack([pa[pa[:, 1] >= ya - banda], pb[pb[:, 1] <= yb + banda]])
+    return cv2.convexHull(sel.astype(np.int32)).reshape(-1, 2)
 
 
 def _procesar_mano(lado: int, suav: np.ndarray, piel: his.ModeloPiel | None, prohibido: np.ndarray | None,
@@ -248,7 +315,7 @@ def _procesar_mano(lado: int, suav: np.ndarray, piel: his.ModeloPiel | None, pro
     if piel is not None:
         r.retro = his.retroproyeccion(suav, piel, config.espacio_retro, config.disco_retro, zona)
         r.mascara_umbral, r.T_otsu = umb.umbral_piel_otsu(r.retro, zona, config.t_min_otsu)
-    else:  # sin calibrar la piel: rango fijo en YCrCb
+    else:  # aún sin histograma aprendido de la mano: rango fijo en YCrCb
         r.mascara_umbral = cv2.bitwise_and(umb.umbral_ycrcb(suav), zona)
     r.mascara_limpia = mor.limpiar_mascara(r.mascara_umbral, config.tam_apertura, config.tam_cierre, config.forma_ee)
     area_min = config.area_min_frac * suav.shape[0] * suav.shape[1]
@@ -270,7 +337,10 @@ def _procesar_mano(lado: int, suav: np.ndarray, piel: his.ModeloPiel | None, pro
             r.uso_watershed = True
             r.componente = comp_ws
             r.mascara_mano, r.info_corte = seg.separar_mano_brazo(comp_ws, zona, config.metodo_corte)
-    r.analisis = car.analizar_mano(r.mascara_mano, r.info_corte.direccion_brazo, k_dedo=config.k_dedo)
+    # Si no se ve el antebrazo (un reloj o una manga lo tapan), se supone que viene de abajo: en el juego
+    # las manos se levantan frente a la cámara. Así la muñeca no se cuenta como un dedo.
+    brazo = r.info_corte.direccion_brazo or (0.0, 1.0)
+    r.analisis = car.analizar_mano(r.mascara_mano, brazo, k_dedo=config.k_dedo)
     if r.analisis is None:
         r.velocidad = vel.actualizar(None, t)
         if seguidor is not None:
@@ -346,11 +416,14 @@ def procesar_frame(frame: np.ndarray, modelo_camara: cal.ModeloCamara | None,
     marca("caras")
     res.clahe, res.suavizada = preprocesar(img, config)
     marca("clahe+suavizado")
-    movimiento = estado.movimiento.aplicar(img) if config.seguimiento and config.exigir_movimiento else None
-    res.movimiento = movimiento
+    calcular = (config.seguimiento and config.exigir_movimiento) or config.golpe_por_movimiento
+    res.mov = estado.movimiento.aplicar(img, config, res.caras) if calcular else None
+    res.movimiento = res.mov.mascara if res.mov is not None else None
+    marca("movimiento")
+    mov_mano = res.movimiento if config.seguimiento and config.exigir_movimiento else None
     for lado in lados:
         res.manos[lado] = _procesar_mano(lado, res.suavizada, pieles.get(lado), res.mascara_caras, modelo, pose,
-                                         config, estado, t, movimiento)
+                                         config, estado, t, mov_mano)
         marca(f"mano {'J1' if lado < 0 else 'J2'}")
     return res
 

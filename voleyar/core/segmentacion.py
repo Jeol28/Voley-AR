@@ -475,3 +475,48 @@ def fraccion_en_movimiento(mascara: np.ndarray | None, movimiento: np.ndarray | 
     if mascara is None or movimiento is None or not mascara.any():
         return None
     return float(np.count_nonzero(cv2.bitwise_and(mascara, movimiento)) / np.count_nonzero(mascara))
+
+
+@dataclass
+class ContactoMovimiento:
+    """¿Algo que no es el fondo está tocando el balón en la imagen?"""
+
+    toca: bool
+    fraccion: float = 0.0  # parte del disco del balón ocupada por primer plano en movimiento
+    centroide: np.ndarray | None = None  # centro (px) de lo que se mueve sobre el balón
+    motivo: str = ""
+
+
+def contacto_en_movimiento(movimiento: np.ndarray | None, centro: np.ndarray, radio: float,
+                           margen: float = 1.35, fraccion_min: float = 0.12,
+                           global_max: float = 0.5) -> ContactoMovimiento:
+    r"""Toque por sustracción de fondo: cualquier objeto en movimiento sobre el balón lo golpea.
+
+    Se cuenta el primer plano de MOG2 dentro del disco del balón proyectado
+    (radio :math:`r\cdot` ``margen``). Si ocupa al menos ``fraccion_min`` del disco,
+    hay toque; da igual si es una mano, una raqueta o un cuaderno. Lo que lleva
+    quieto un rato ya es *entorno* (MOG2 lo absorbe en el fondo) y no golpea.
+    Si más de ``global_max`` de toda la imagen "se movió" no es un objeto sino un
+    cambio de luz o de exposición de la cámara, y no se cuenta.
+    """
+    if movimiento is None:
+        return ContactoMovimiento(False, motivo="sin sustracción de fondo")
+    h, w = movimiento.shape[:2]
+    if float(np.count_nonzero(movimiento)) / movimiento.size > global_max:
+        return ContactoMovimiento(False, motivo="cambio de luz")
+    R = max(2.0, float(radio) * margen)
+    cx, cy = float(centro[0]), float(centro[1])
+    x0, x1 = int(max(0, np.floor(cx - R))), int(min(w, np.ceil(cx + R) + 1))
+    y0, y1 = int(max(0, np.floor(cy - R))), int(min(h, np.ceil(cy + R) + 1))
+    if x0 >= x1 or y0 >= y1:
+        return ContactoMovimiento(False, motivo="balón fuera de la imagen")
+    ys, xs = np.mgrid[y0:y1, x0:x1]
+    disco = (xs - cx) ** 2 + (ys - cy) ** 2 <= R * R
+    n_disco = int(disco.sum())
+    if n_disco == 0:
+        return ContactoMovimiento(False, motivo="balón fuera de la imagen")
+    activo = (movimiento[y0:y1, x0:x1] > 0) & disco
+    n = int(activo.sum())
+    frac = n / n_disco
+    cen = np.array([xs[activo].mean(), ys[activo].mean()]) if n else None
+    return ContactoMovimiento(frac >= fraccion_min, frac, cen, "" if frac >= fraccion_min else "nada se mueve ahí")

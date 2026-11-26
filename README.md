@@ -48,21 +48,24 @@ Los transformers se usan solo en inferencia, con pesos públicos de Hugging Face
 ```
 
 - **Modos:** `2j` (dos jugadores lado a lado) e `ia` (tú a la izquierda contra la IA a la derecha).
-- **Gestos:**
+- **Con qué se golpea:** con cualquier cosa que se mueva y no sea parte del cuarto: la mano, un cuaderno, una raqueta.
+  Lo que lleva quieto unos segundos es entorno y no golpea; la cara tampoco cuenta.
+- **Tipos de golpe** (los decide la caracterización de lo que toca el balón):
 
-  | Mano | Golpe | Punto de golpe |
+  | Qué toca el balón | Golpe | Cómo vuela |
   |---|---|---|
-  | Abierta (4-5 dedos) | remate, fuerte y bajo | centro de la palma |
-  | 2-3 dedos | golpe | punta del dedo |
-  | 1 dedo | toque suave y alto | punta del dedo |
-  | Puño | bloqueo | nudillos |
+  | La mano, avanzando rápido hacia la cámara (> 60 cm/s) | **¡Remate!** | bajo, rápido y al fondo |
+  | Puño (0-1 dedos) | **Golpe fuerte** | largo |
+  | Mano con 2-3 dedos, o un objeto pequeño | **Golpe** | según la velocidad del golpe |
+  | Mano abierta (4-5 dedos) | **Toque suave** | alto y corto |
+  | Un objeto grande y compacto (un cuaderno) | **Bloqueo** | rebota corto, detrás de la red |
 
-  La dirección y la distancia dependen de cómo muevas la mano.
-- **Plano de juego:** al empezar se mide a qué distancia de la cámara está la mano de cada jugador. Un golpe solo vale
-  si la mano está en ese plano, ni mucho más cerca ni mucho más lejos. En escritorio, Depth Anything además comprueba
-  que la mano esté delante del cuerpo.
+- **Gestos** (mano quieta medio segundo; un anillo alrededor de la mano se va llenando): ✋ mano abierta = sacar,
+  pulgar e índice en L = pausa / seguir, ☝ un dedo arriba = revancha, ✌ dos dedos juntos = cambiar lo que se ve.
+- **Plano de juego:** al empezar se mide a qué distancia de la cámara está la mano de cada jugador; si golpea solo con
+  la mano reconocida (sin moverla), el golpe vale si la mano está en ese plano.
 - **Reglas:** un toque por lado, un bote permitido, fuera o red es punto para el otro. Gana quien llegue a 15.
-  **No se cruza la red:** cada mano solo se busca en su mitad.
+  **No se cruza la red:** cada jugador solo golpea el balón en su mitad.
 
 ## Instalación
 
@@ -135,17 +138,18 @@ python app.py                      # http://127.0.0.1:7860 (o el Space en línea
    puntos para ganar (7, 11 o 15) y "Usar la calibración" (para comparar). Desde el inicio también se abren **Cómo se
    juega** y **Calibrar cámara**, que es un asistente con el tablero.
 2. Pongan la cámara frente a ustedes, a unos 50-75 cm: el jugador 1 a la izquierda y el jugador 2 a la derecha.
-3. Aparece un **recuadro naranja** en la mitad de cada jugador. Cúbranlo con la palma, a la distancia a la que van a
-   jugar, y pulsen **¡Listo!** (o `ESPACIO` en la ventana): se aprende el color de la piel de cada uno.
-4. Durante los primeros segundos se mide la distancia de cada mano (su plano de juego). A jugar. Al terminar,
-   **Revancha** o **Menú principal**.
+3. Se juega de una, sin calibrar nada: muevan la mano (o un cuaderno, o lo que quieran) sobre el balón para
+   devolverlo. Lo quieto es parte del cuarto y no golpea.
+4. El color de la piel se aprende solo: mientras no hay histograma propio se usa el rango fijo de YCrCb, y en cuanto
+   una mano se confirma (forma + movimiento + histéresis) sus píxeles construyen los histogramas H-S y Cr-Cb de ese
+   jugador, que se refrescan cada 30 frames. Durante los primeros segundos también se mide la distancia de cada mano
+   (su plano de juego). Al terminar, **Revancha** o **Menú principal**.
 
 En la ventana todo se elige con el mouse o con la tecla que aparece en cada botón. Atajos durante la partida:
 
 | Tecla | Acción |
 |---|---|
-| `ESPACIO` | capturar la piel de cada jugador |
-| `ESC` | pausa: seguir, recalibrar la piel, reiniciar, menú principal o salir |
+| `ESC` | pausa: seguir, reiniciar, menú principal o salir |
 | `V` / `B` | siguiente / anterior tema: cómo te ve el juego, en vivo (ver la sección siguiente) |
 | `[` / `]` | cambiar el ajuste del tema que se está viendo |
 | `C` | con calibración / sin calibración |
@@ -156,25 +160,25 @@ dos jugadores, `I`/`J`/`K`/`L` mueve la mano del jugador 2 y `N` cambia sus dedo
 
 ## Cada tema del curso, dentro del juego
 
-No hay una aplicación ni un panel aparte para ver lo técnico: el propio juego lo muestra mientras se juega. En la
-partida, **¿Qué quieres ver?** (o `V` / `B` en la ventana) pone un "lente" sobre la escena: el mundo del juego pasa a
-verse como lo ve ese tema **en ese mismo frame** (la máscara de piel, los bordes, el mapa de profundidad…), con la
-cancha, la red y el balón encima, y una tarjeta translúcida abajo con sus números reales. Con **− / +** (o `[` / `]`)
-se cambia su ajuste principal y se ve el efecto sin dejar de jugar.
+Cada tema del curso **decide algo de la partida**, y su lente lo muestra mientras se juega. En la partida, **¿Qué
+quieres ver?** (o `V` / `B` en la ventana) pone ese tema sobre la imagen de la cámara, con la cancha, la red y el balón
+siempre encima. Sus números y gráficas van **fuera de la cancha**: en la columna izquierda de la web (se actualizan cada
+segundo) o en una franja debajo del video en la ventana, así nunca tapan el balón. Con **− / +** (o `[` / `]`) se
+cambia su ajuste y se nota en el juego.
 
-| Vista | Qué muestra en vivo | Ajuste con − / + |
-|---|---|---|
-| 1 · Calibración | La imagen de la lente con las rectas curvadas y la corregida; `f`, centro, `k1`, error de reproyección; la distancia de cada mano con y sin calibración. | usar la calibración |
-| 2 · Filtros | La zona de las manos antes y después del suavizado, con los bordes de Canny; el ruido (σ del laplaciano) antes y después. | gaussiano / mediana / bilateral / ninguno |
-| 3 · Histogramas | El histograma Cr-Cb de la piel de cada jugador y su retroproyección; el contraste antes y después de CLAHE. | clip de CLAHE |
-| 4 · Umbralización | La curva de varianza entre clases de Otsu y el histograma de cada mitad, con el umbral T elegido; la máscara binaria. | umbral mínimo de Otsu |
-| 5 · Morfología | La máscara antes y después de apertura + cierre; regiones, ruido quitado y huecos rellenados. | tamaño del cierre |
-| 6 · Segmentación | Mano (blanco), brazo (naranja) y caras de Viola-Jones (rojo) en cada mitad; si se cortó el brazo o actuó el watershed. | corte por distancia o por ancho |
-| 7 · Caracterización | La silueta de cada mano con casco convexo, valles y puntas; dedos, gesto, área en cm², solidez y circularidad. | umbral de los dedos (k·r) |
-| 8 · Transformers | El mapa de profundidad de Depth Anything y las cajas de OWLv2; latencias y si cada mano está delante de su cara. | jugar con OWLv2 |
+| Tema | Qué decide en la partida | Si lo cambias o lo quitas | Ajuste con − / + |
+|---|---|---|---|
+| 1 · Calibración | La distancia de la mano, `Z = f·W/w`, y su velocidad hacia la cámara: más de 60 cm/s es un **remate**. Corrige la distorsión de la lente. | Sin calibración `f` es aproximada: Z y su velocidad salen mal y el remate sale de más o de menos. | usar la calibración |
+| 2 · Filtros | Mide la **rapidez** de lo que golpea: busca esquinas (Shi-Tomasi, con derivadas de Sobel) y las sigue con Lucas-Kanade sobre una pirámide gaussiana, con comprobación de ida y vuelta. Un golpe rápido sale más fuerte (más lejos y más bajo). El suavizado gaussiano sigue quitando el ruido antes de buscar movimiento. | Con "apagada" la velocidad no cuenta; con "turbo" cuenta el doble. | fuerza por velocidad |
+| 3 · Histogramas | **El color del balón:** con el histograma de tono del cuarto (solo píxeles con color) elige, entre seis colores, el que menos aparece, para que el balón siempre resalte; cambia sin parpadear (histéresis de 60 % y 2 s). Además detecta cambios de luz (Bhattacharyya) y aprende solo la piel de cada jugador. | En un cuarto naranja el balón deja de ser naranja; fijarlo a mano en un color parecido al cuarto hace que se pierda. | color del balón (automático o fijo) |
+| 4 · Umbralización | Otsu sobre \|frame − fondo\| decide en cada frame cuánto tiene que cambiar un píxel para moverse (con un mínimo). | Con un mínimo alto, los objetos con poco contraste dejan de golpear; con uno bajo, el ruido sí. | umbral mínimo del movimiento |
+| 5 · Morfología | Apertura quita el ruido suelto, cierre une el objeto y una **dilatación** agranda su zona de golpe. | Zona "gigante": el balón se devuelve aunque la mano pase cerca (ayuda a niños y principiantes). | tamaño de la zona de golpe |
+| 6 · Segmentación | MOG2 modela el fondo; las componentes conexas separan cada objeto; la cara (Viola-Jones) se descarta. | Si "la cara golpea", la cabeza devuelve el balón sin querer. | la cara golpea sí / no |
+| 7 · Caracterización | **Gestos de control** con la mano quieta medio segundo (dedos por casco convexo y defectos **y** por círculos alrededor de la palma, se toma el mayor; ángulo entre dedos para la L): mano abierta = sacar, L con pulgar e índice = pausa, un dedo arriba = revancha, dos dedos juntos = cambiar tema. Además, dedos, área y solidez de lo que toca el balón deciden el **tipo de golpe**. | Cambiar `k` cambia cuántos dedos ve y, con eso, los gestos y el golpe. | umbral de los dedos (k·r) |
+| 8 · Transformers | Depth Anything mide qué está cerca de la cámara: lo que pasa por detrás no golpea. | Con cercanía 0 cualquiera que pase al fondo devuelve el balón. | cercanía mínima |
 
-Las vistas también funcionan durante la calibración de la piel: la de Histogramas muestra el modelo recién
-aprendido.
+En tu computador Depth Anything corre en un hilo aparte (~30 ms en la GPU del Mac). En el Space, con ZeroGPU, solo se
+calcula al mirar su lente, así que el filtro de cercanía casi no actúa allí.
 
 ## Despliegue en Hugging Face Spaces (ZeroGPU)
 
@@ -204,13 +208,14 @@ sube al Space con hardware `zero-a10g`. Diferencias de la versión en línea:
 
 Se usó un flujo tipo *Git Flow* simplificado:
 
-- **`main`**: versiones estables y entregables (tags `v1.0.0`, `v1.1.0`, `v2.0.0`, `v2.1.0` y `v2.2.0`). Solo recibe merges desde `develop`.
+- **`main`**: versiones estables y entregables (tags `v1.0.0`, `v1.1.0`, `v2.0.0`, `v2.1.0`, `v2.2.0`, `v2.4.0` y `v2.5.0`). Solo recibe merges desde `develop`.
 - **`develop`**: rama de integración. Cada tema entra cuando sus pruebas pasan.
 - **`feature/<tema>`**: una rama por módulo. Para la v1: `feature/calibracion`, `feature/filtros`,
   `feature/histogramas`, `feature/umbralizacion`, `feature/morfologia`, `feature/segmentacion`,
   `feature/caracterizacion`, `feature/transformers`, `feature/juego`, `feature/ui` y `feature/docs`. Después vinieron
-  `feature/despliegue` (v1.1.0), `feature/multijugador` (v2.0.0), `feature/interfaz-juego` (v2.1.0) y
-  `feature/vistas-en-juego` (v2.2.0). Cada rama sale de `develop`, se trabaja con commits
+  `feature/despliegue` (v1.1.0), `feature/multijugador` (v2.0.0), `feature/interfaz-juego` (v2.1.0),
+  `feature/vistas-en-juego` (v2.2.0), `feature/turn-cloudflare` y `feature/deteccion-robusta` (v2.4.0) y
+  `feature/golpe-por-movimiento` (v2.5.0: golpe con cualquier objeto, cada tema decide algo de la partida y gestos). Cada rama sale de `develop`, se trabaja con commits
   pequeños ([Conventional Commits](https://www.conventionalcommits.org/es/)) y vuelve con `git merge --no-ff`.
 
 ```mermaid
@@ -294,6 +299,27 @@ gitGraph
     merge feature/vistas-en-juego
     checkout main
     merge develop tag: "v2.2.0"
+    checkout develop
+    branch feature/turn-cloudflare
+    commit id: "feat: lentes en la escena y espejo"
+    checkout develop
+    merge feature/turn-cloudflare
+    branch feature/deteccion-robusta
+    commit id: "feat: presencia fiable de la mano"
+    checkout develop
+    merge feature/deteccion-robusta
+    checkout main
+    merge develop tag: "v2.4.0"
+    checkout develop
+    branch feature/golpe-por-movimiento
+    commit id: "feat: golpe con cualquier objeto"
+    commit id: "feat: cada tema decide algo"
+    commit id: "feat: gestos y color del balón"
+    commit id: "fix: mano con reloj (fotos reales)"
+    checkout develop
+    merge feature/golpe-por-movimiento
+    checkout main
+    merge develop tag: "v2.5.0"
 ```
 
 ## Arquitectura
@@ -403,9 +429,14 @@ El pipeline de las dos manos tarda **≈ 20-25 ms por frame** a 960 px (la casca
      suficiente. Así se descartan las caras que se escapan de Viola-Jones, que se ven como una "palma" demasiado
      grande.
   2. **Movimiento (sustracción de fondo MOG2):** una mano nueva tiene que moverse para entrar al juego, así que un
-     objeto de color piel quieto no cuenta. El HUD avisa "mueve la mano para empezar".
+     objeto de color piel quieto no cuenta.
   3. **Histéresis:** aparece tras 3 frames válidos y desaparece tras 6 inválidos; el gesto se suaviza con la mayoría
      de los últimos 5 frames.
+- **Se golpea con cualquier cosa que no sea el entorno** (`voleyar/core/movimiento.py`). Cada frame, reducido a
+  320 px, pasa por los temas en cadena: suavizado → histograma de la luz → MOG2 → Otsu sobre |frame − fondo| →
+  apertura y cierre → componentes conexas sin la cara. Si un objeto cubre al menos el 12 % del disco del balón, lo
+  devuelve; su forma (o los dedos de la mano) decide el tipo de golpe, y Depth Anything descarta lo que está lejos.
+  Cuesta ~1.3 ms por frame.
 
 Más detalle en [`docs/arquitectura.md`](docs/arquitectura.md).
 

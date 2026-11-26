@@ -8,6 +8,8 @@ por botones.
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 from voleyar.juego.bucle import Juego, OpcionesJuego
@@ -27,8 +29,13 @@ class FuenteExterna:
 
 
 def crear_juego_navegador(modelo_camara=None, modo: str = "ia", dificultad: str = "normal") -> Juego:
-    """Juego sin ventana ni hilos de modelos (en un Space la GPU se pide por llamada)."""
-    op = OpcionesJuego(modo=modo, profundidad=False, dificultad=dificultad, headless=True, interfaz="web")
+    """Juego sin ventana (en un Space, sin hilos de modelos: la GPU se pide por llamada)."""
+    from voleyar.entorno import EN_SPACE
+
+    # En tu computador Depth Anything corre en un hilo (≈ 30 ms en la GPU del Mac) y decide qué está
+    # cerca de la cámara; en un Space con ZeroGPU cada llamada pide la GPU, así que solo se usa en su vista.
+    profundidad = not EN_SPACE and os.environ.get("VOLEYAR_PROFUNDIDAD", "1") != "0"
+    op = OpcionesJuego(modo=modo, profundidad=profundidad, dificultad=dificultad, headless=True, interfaz="web")
     juego = Juego(op, fuente=FuenteExterna(), modelo_camara=modelo_camara)
     # En el servidor cada milisegundo cuenta: se procesa a 640 px y las caras se buscan cada 6 frames
     juego.config.ancho_proceso = 640

@@ -1,6 +1,6 @@
 [project]
 name = "voleyar"
-version = "1.0.0"
+version = "2.5.0"
 description = "Minijuego de voleibol en realidad aumentada sobre la mesa (Proyecto final – Visión Artificial)"
 authors = [{ name = "Jorge Enrique Olaya Liévano" }]
 requires-python = ">=3.11"

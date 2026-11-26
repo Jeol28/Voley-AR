@@ -40,7 +40,7 @@ def main() -> None:
                        tolerancia_distancia=a.tolerancia, dificultad=a.dificultad,
                        calibrado=not a.sin_calibrar, puntos=a.puntos)
     print(__doc__.split("Ejemplos")[0].strip())
-    print("Usa el mouse o las teclas de los botones. Durante la partida: ESPACIO piel · ESC pausa · D ver detección")
+    print("Usa el mouse o las teclas de los botones. Durante la partida: ESC pausa · D ver detección")
     r = Juego(op).ejecutar()
     izq, der = ("Tú", "IA") if op.modo == "ia" else ("Jugador 1", "Jugador 2")
     print(f"Marcador final: {izq} {r['marcador']['jugador']} – {der} {r['marcador']['rival']}")

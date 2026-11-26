@@ -88,9 +88,9 @@ def dibujar_red(img: np.ndarray, pose: Pose, modelo: ModeloCamara, altura: float
 # --------------------------------------------------------------------------- #
 
 
-@lru_cache(maxsize=256)
-def sprite_balon(radio_px: int, giro: int = 0) -> np.ndarray:
-    """Esfera sombreada con paneles de balón de voleibol (BGRA, caché por radio y giro)."""
+@lru_cache(maxsize=512)
+def sprite_balon(radio_px: int, giro: int = 0, color: tuple[int, int, int] = vis.BGR_NARANJA) -> np.ndarray:
+    """Esfera sombreada con paneles de balón de voleibol (BGRA, caché por radio, giro y color de los paneles)."""
     R = max(2, int(radio_px))
     n = 2 * R + 3
     c = (n - 1) / 2
@@ -111,15 +111,17 @@ def sprite_balon(radio_px: int, giro: int = 0) -> np.ndarray:
     Rm = cv2.Rodrigues(np.array([a, a * 0.6, 0.3]))[0].astype(np.float32)
     nr = normal @ Rm.T
     eje = np.argmax(np.abs(nr), axis=-1)
-    blanco = np.array(vis.BGR_NEUTRO, np.float32)
-    naranja = np.array(vis.BGR_NARANJA, np.float32)
-    grafito = np.array((80, 70, 60), np.float32)
-    base = np.where((eje == 1)[..., None], naranja, blanco)
+    # Todo el balón es del mismo color: los paneles se distinguen por dos tonos (normal y más oscuro)
+    claro = np.array(color, np.float32)
+    oscuro = claro * 0.62
+    grafito = claro * 0.3
+    base = np.where((eje == 1)[..., None], claro, oscuro)
     # Costuras: donde dos componentes son casi iguales
     s = np.sort(np.abs(nr), axis=-1)
     costura = (s[..., 2] - s[..., 1]) < 0.06
     base = np.where(costura[..., None], grafito, base)
-    color = base * (0.35 + 0.65 * difusa[..., None]) + 255 * 0.55 * especular[..., None]
+    brillo = np.minimum(claro * 1.35 + 30, 255)  # el reflejo de la luz, del mismo color (no blanco)
+    color = base * (0.35 + 0.65 * difusa[..., None]) + brillo * 0.45 * especular[..., None]
     alfa = np.clip((1 - np.sqrt(r2)) * R + 0.5, 0, 1) * dentro
     out = np.dstack([np.clip(color, 0, 255), alfa * 255]).astype(np.uint8)
     return out
@@ -163,12 +165,12 @@ def dibujar_sombra(img: np.ndarray, pos: np.ndarray, pose: Pose, modelo: ModeloC
 
 
 def dibujar_balon(img: np.ndarray, pos: np.ndarray, pose: Pose, modelo: ModeloCamara, giro: int = 0,
-                  radio: float = cfg.RADIO_BALON) -> None:
+                  radio: float = cfg.RADIO_BALON, color: tuple[int, int, int] = vis.BGR_NARANJA) -> None:
     c = proyectar(np.asarray(pos)[None], pose, modelo)[0]
     if not _en_imagen(img, c, 200):
         return
     r = radio_en_pixeles(pos, pose, modelo, radio)
-    _pegar_sprite(img, sprite_balon(int(round(np.clip(r, 2, 120))), giro % 24), tuple(c))
+    _pegar_sprite(img, sprite_balon(int(round(np.clip(r, 2, 120))), giro % 24, tuple(color)), tuple(c))
 
 
 def balon_detras_de_red(pos: np.ndarray, pose: Pose) -> bool:
@@ -245,8 +247,8 @@ def dibujar_hud(img: np.ndarray, marcador: tuple[int, int], mensaje: str = "", m
         ancho_m = int(len(mensaje) * tam * 0.55)
         vis.poner_texto(img, mensaje, (w // 2 - ancho_m // 2, h // 2 + int(h * 0.28)), tam + 2, vis.BGR_NARANJA,
                         negrita=True, fondo=vis.BGR_GRAFITO, alfa_fondo=0.75)
-    izq = modo + (f"   ·   {fps:.0f} FPS" if fps is not None else "") + f"   ·   detector {detector}"
-    vis.poner_texto(img, izq, (14, h - tam - 14), tam - 4, vis.BGR_NEUTRO, fondo=vis.BGR_GRAFITO)
+    if modo:  # solo un aviso sencillo (por ejemplo, que la cámara no está calibrada)
+        vis.poner_texto(img, modo, (14, h - tam - 14), tam - 4, vis.BGR_NEUTRO, fondo=vis.BGR_GRAFITO)
     if gesto:
         der = f"{gesto}" + (f" · {rapidez:.0f} cm/s" if rapidez is not None else "")
         x = w - int(len(der) * (tam - 4) * 0.6) - 60
@@ -366,7 +368,7 @@ def dibujar_red_frontal(img: np.ndarray, pose: Pose, modelo: ModeloCamara, altur
 
 def dibujar_escena_pantalla(img: np.ndarray, pose: Pose, modelo: ModeloCamara, balon_pos: np.ndarray,
                             ia_xy: np.ndarray | None = None, ia_altura: float = 4.0, marcas=(), t: float = 0.0,
-                            giro: int = 0) -> np.ndarray:
+                            giro: int = 0, color_balon: tuple[int, int, int] = vis.BGR_NARANJA) -> np.ndarray:
     """Cancha, red, balón, sombra e IA sobre la imagen (cámara virtual con la K real)."""
     out = img.copy()
     dibujar_piso(out, pose, modelo)
@@ -374,6 +376,6 @@ def dibujar_escena_pantalla(img: np.ndarray, pose: Pose, modelo: ModeloCamara, b
         dibujar_ia_pantalla(out, ia_xy, ia_altura, pose, modelo)
     dibujar_sombra(out, balon_pos, pose, modelo)
     dibujar_red_frontal(out, pose, modelo)
-    dibujar_balon(out, balon_pos, pose, modelo, giro)  # el balón vuela en el plano de la red, delante de ella
+    dibujar_balon(out, balon_pos, pose, modelo, giro, color=color_balon)  # vuela en el plano de la red, delante
     dibujar_marcas_golpe(out, marcas, t, pose, modelo)
     return out

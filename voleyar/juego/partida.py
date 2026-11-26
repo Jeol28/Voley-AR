@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from voleyar.core import config as cfg
 from voleyar.core.calibracion import distancia_rayo_punto
 from voleyar.juego.fisica import Balon, Evento, ParamsFisica, paso, velocidad_para_objetivo
 from voleyar.juego.ia_rival import IARival
@@ -45,6 +46,9 @@ class EntradaJugador:
     fuerza: float = 0.8
     gesto: str = "golpe"
     valida: bool | None = None  # False = mano fuera del plano de juego; None = sin información
+    toca: bool = False  # algo que no es el entorno (sustracción de fondo) está sobre el balón en la imagen
+    tipo: str = "golpe"  # remate, fuerte, golpe, suave o bloqueo (caracterizacion.tipo_de_golpe)
+    potencia: float = 0.0  # 0-1: qué tan borroso (rápido) llegó lo que golpea; el golpe sale más fuerte
 
 
 @dataclass
@@ -53,6 +57,15 @@ class MarcaGolpe:
     valido: bool
     t: float
     texto: str
+
+
+# Cómo vuela cada tipo de golpe: (profundidad del bote en el campo rival, altura máxima)
+PERFILES_GOLPE = {
+    "remate": (10.5, 6.2),  # rápido, bajo y al fondo
+    "fuerte": (9.5, 7.5),
+    "suave": (4.5, 12.5),  # alto y corto, cae cerca de la red
+    "bloqueo": (3.0, 6.8),  # rebota corto, justo detrás de la red
+}
 
 
 def params_pantalla() -> ParamsFisica:
@@ -99,8 +112,8 @@ class Partida:
         x = -7.0 if self.sacador == JUGADOR else 7.0
         self.balon = Balon(np.array([x, 0.0, 7.0]), np.zeros(3))
         if self.humano(self.sacador):
-            self.mensaje = ("Tu saque: golpea el balón" if self.modo == "ia"
-                            else f"Saca {self.nombres[self.sacador]}: golpea el balón")
+            self.mensaje = ("Tu saque: golpea el balón o abre la mano" if self.modo == "ia"
+                            else f"Saca {self.nombres[self.sacador]}: golpea el balón o abre la mano")
         else:
             self.mensaje = "Saca la IA…"
 
@@ -127,6 +140,8 @@ class Partida:
 
     # ---------------------------------------------------------------- golpes
     def _toca_balon(self, e: EntradaJugador) -> bool:
+        if e.toca:  # cualquier objeto en movimiento sobre el balón (no solo una mano)
+            return True
         tope = self.p.radio + self.alcance
         if e.rayo is not None:
             o, d = e.rayo
@@ -141,12 +156,26 @@ class Partida:
         f = float(np.clip(e.fuerza, 0.4, 1.1))
         v = np.asarray(e.velocidad, float)
         hacia = signo * v[0]  # rapidez de la mano hacia la red
-        profundidad = np.interp(f, [0.5, 1.05], [4.5, 10.0]) + np.clip(hacia * 0.03, -2.0, 2.5)
+        if e.tipo in PERFILES_GOLPE:
+            base, apice = PERFILES_GOLPE[e.tipo]
+            profundidad = base + np.clip(hacia * 0.02, -1.0, 1.0)
+        else:
+            profundidad = np.interp(f, [0.5, 1.05], [4.5, 10.0]) + np.clip(hacia * 0.03, -2.0, 2.5)
+            apice = float(np.interp(f, [0.5, 1.05], [11.5, 7.5]) + np.clip(v[1] * 0.01, 0.0, 1.5))
+        if e.tipo != "bloqueo" and e.potencia > 0:  # golpe rápido (borroso): más lejos y más bajo, o sea más veloz
+            profundidad += 2.5 * e.potencia
+            apice = max(float(apice) - 1.5 * e.potencia, cfg.ALTURA_RED + 1.5)
         x_obj = signo * float(np.clip(profundidad, 2.5, 11.5))
-        apice = float(np.interp(f, [0.5, 1.05], [11.5, 7.5]) + np.clip(v[1] * 0.01, 0.0, 1.5))
+        apice = max(float(apice), self.balon.pos[2] + 0.5)
         vel = velocidad_para_objetivo(self.balon.pos, np.array([x_obj, 0.0]), apice, self.p)
         vel[1] = 0.0
         return vel
+
+    def sacar(self, quien: str) -> list[str]:
+        """Saque con un gesto (mano abierta): como si golpeara el balón, si le toca sacar a ``quien``."""
+        if self.estado != "saque" or self.sacador != quien or not self.humano(quien):
+            return []
+        return self._intentar_golpe(EntradaJugador(fuerza=0.8, gesto="saque", toca=True, tipo="golpe"), quien)
 
     def _intentar_golpe(self, e: EntradaJugador | None, quien: str) -> list[str]:
         if e is None or self.ultimo_toque == quien:
@@ -159,7 +188,7 @@ class Partida:
             return []
         self._t_ultimo_golpe[quien] = self.t
         if e.valida is False:
-            self.marcas.append(MarcaGolpe(self.balon.pos.copy(), False, self.t, "mano fuera del plano"))
+            self.marcas.append(MarcaGolpe(self.balon.pos.copy(), False, self.t, "muy cerca o muy lejos"))
             return ["golpe_invalido"]
         self.balon.pos[1] = 0.0
         self.balon.pos[2] = max(self.balon.pos[2], self.p.radio + 0.5)
@@ -168,7 +197,11 @@ class Partida:
         self.botes = 0
         if not self.humano(_otro(quien)):
             self.ia.nueva_jugada()
-        self.marcas.append(MarcaGolpe(self.balon.pos.copy(), True, self.t, e.gesto))
+        from voleyar.core.caracterizacion import TIPOS_GOLPE
+
+        nombre = TIPOS_GOLPE.get(e.tipo, e.gesto) + (" ¡rapidísimo!" if e.potencia >= 0.5 and e.tipo != "bloqueo" else "")
+        self.marcas.append(MarcaGolpe(self.balon.pos.copy(), True, self.t, nombre))
+        self.ultimo_tipo = {"quien": quien, "tipo": e.tipo, "potencia": e.potencia}
         if self.estado == "saque":
             self._cambiar("juego")
             self.mensaje = ""
