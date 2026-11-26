@@ -373,3 +373,18 @@ def test_en_la_partida_el_balon_cambia_de_color_sin_parpadear():
     assert j.color_balon == "rosa"
     s = ra.sprite_balon(20, 0, (175, 60, 255))
     assert s.shape == (43, 43, 4) and not np.array_equal(s, ra.sprite_balon(20, 0))
+
+
+@pytest.mark.parametrize("nombre", ["naranja", "azul", "cian", "rosa"])
+def test_el_balon_es_todo_de_su_color(nombre):
+    from voleyar.core.histogramas import COLORES_BALON
+    from voleyar.juego import render_ar as ra
+
+    tono, bgr = COLORES_BALON[nombre]
+    s = ra.sprite_balon(40, 3, bgr)
+    dentro = s[..., 3] > 200
+    hsv = cv2.cvtColor(np.ascontiguousarray(s[..., :3]), cv2.COLOR_BGR2HSV)
+    brillantes = dentro & (hsv[..., 2] > 60)  # (las costuras y la sombra son oscuras: sin tono fiable)
+    d = np.abs(hsv[..., 0].astype(int) - tono)
+    assert (hsv[..., 1][brillantes] > 90).mean() > 0.97  # nada de blanco: todo tiene color
+    assert (np.minimum(d, 180 - d)[brillantes] <= 12).mean() > 0.95  # y es el color elegido

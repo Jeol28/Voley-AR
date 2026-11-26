@@ -111,15 +111,17 @@ def sprite_balon(radio_px: int, giro: int = 0, color: tuple[int, int, int] = vis
     Rm = cv2.Rodrigues(np.array([a, a * 0.6, 0.3]))[0].astype(np.float32)
     nr = normal @ Rm.T
     eje = np.argmax(np.abs(nr), axis=-1)
-    blanco = np.array(vis.BGR_NEUTRO, np.float32)
-    naranja = np.array(color, np.float32)
-    grafito = np.array((80, 70, 60), np.float32)
-    base = np.where((eje == 1)[..., None], naranja, blanco)
+    # Todo el balón es del mismo color: los paneles se distinguen por dos tonos (normal y más oscuro)
+    claro = np.array(color, np.float32)
+    oscuro = claro * 0.62
+    grafito = claro * 0.3
+    base = np.where((eje == 1)[..., None], claro, oscuro)
     # Costuras: donde dos componentes son casi iguales
     s = np.sort(np.abs(nr), axis=-1)
     costura = (s[..., 2] - s[..., 1]) < 0.06
     base = np.where(costura[..., None], grafito, base)
-    color = base * (0.35 + 0.65 * difusa[..., None]) + 255 * 0.55 * especular[..., None]
+    brillo = np.minimum(claro * 1.35 + 30, 255)  # el reflejo de la luz, del mismo color (no blanco)
+    color = base * (0.35 + 0.65 * difusa[..., None]) + brillo * 0.45 * especular[..., None]
     alfa = np.clip((1 - np.sqrt(r2)) * R + 0.5, 0, 1) * dentro
     out = np.dstack([np.clip(color, 0, 255), alfa * 255]).astype(np.uint8)
     return out
