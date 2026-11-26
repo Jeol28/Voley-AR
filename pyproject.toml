@@ -1,0 +1,13 @@
+[project]
+name = "voleyar"
+version = "1.0.0"
+description = "Minijuego de voleibol en realidad aumentada sobre la mesa (Proyecto final – Visión Artificial)"
+authors = [{ name = "Jorge Enrique Olaya Liévano" }]
+requires-python = ">=3.11"
+license = { text = "MIT" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "lento: descarga modelos de Hugging Face o tarda varios segundos (excluir con -m 'not lento')",
+]
