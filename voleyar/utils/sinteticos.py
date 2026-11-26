@@ -396,6 +396,7 @@ class JugadorSintetico:
     piel: tuple[int, int, int] = (120, 150, 205)
     camisa: tuple[int, int, int] = (70, 50, 35)
     visible: bool = True
+    mano_visible: bool = True  # la persona sigue en la imagen aunque no juegue (modo contra la IA)
 
 
 def jugadores_por_defecto(n: int = 2) -> list[JugadorSintetico]:
@@ -517,7 +518,7 @@ class FuentePantalla:
         self._i += 1
         img = self._fondo
         for k, j in enumerate(self.jugadores):
-            if j.visible:
+            if j.visible and j.mano_visible:
                 img, _, _ = dibujar_mano_pantalla(img, self.modelo, j, semilla=(self._i + k) % 7)
         return True, ruido_camara(img, 2.5, self._i % 5)
 

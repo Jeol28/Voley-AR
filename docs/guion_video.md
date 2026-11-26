@@ -7,13 +7,13 @@ Preparación antes de grabar:
 - Consigue un segundo jugador para la partida de dos (o usa el modo contra la IA).
 - Buena luz blanca y mangas largas oscuras.
 - Deja abiertos en VS Code los archivos que se van a mostrar (lista en cada bloque).
-- Ten la UI corriendo (`python app.py`) y el juego listo (`python jugar.py --modo 2j`).
+- Ten el laboratorio corriendo (`python laboratorio.py`) y el juego listo (`python jugar.py`).
 
 ---
 
 ## 0:00-0:40 · Introducción
 
-**En pantalla:** unos segundos de partida de dos jugadores, cada uno en su mitad.
+**En pantalla:** el menú de inicio del juego (`python jugar.py`), "2 jugadores" y unos segundos de partida.
 
 > "Este es Voley AR: voleibol en realidad aumentada para dos jugadores frente a una sola cámara web. No hay nada
 > impreso ni ningún objeto: la cancha, la red y el balón se dibujan en la pantalla y lo único real son nuestras manos.
@@ -24,7 +24,8 @@ Preparación antes de grabar:
 
 **En pantalla:** README → *Arquitectura* (diagrama de capas y del pipeline) y la estructura de carpetas.
 
-> "El código está en capas. `core` tiene un módulo por tema, todos como funciones puras. `juego` tiene la física, las
+> "Lo que ve un jugador es solo el juego: menú, ajustes, calibración y partida. Lo técnico vive aparte, en el
+> laboratorio. El código está en capas. `core` tiene un módulo por tema, todos como funciones puras. `juego` tiene la física, las
 > reglas y el render. La UI de Gradio, la ventana de OpenCV y el juego en el navegador son tres presentaciones del mismo
 > pipeline: `core/pipeline.py`, función `procesar_frame`, que procesa una mano por cada mitad de la imagen."
 
@@ -46,7 +47,7 @@ Preparación antes de grabar:
 
 ## 3:00-3:50 · Con calibración vs. sin calibración
 
-**En pantalla:** UI → **Calibración → Distancia de la mano: con y sin calibración**, con la cámara en vivo y la mano
+**En pantalla:** laboratorio → **Calibración → Distancia de la mano: con y sin calibración**, con la cámara en vivo y la mano
 abierta.
 
 > "Sin cancha impresa, ¿para qué la calibración? Para tres cosas: corregir la distorsión, construir la cámara virtual
@@ -58,6 +59,8 @@ abierta.
 - Mencionar la subpestaña **Pose con ArUco (demo de la v1)**: `solvePnP` sigue en el código.
 
 ## 3:50-6:30 · Recorrido por los temas (código + UI)
+
+Todo en el **laboratorio** (`python laboratorio.py` o `/laboratorio`):
 
 | Tiempo | Pestaña | Qué mostrar | Archivo / función |
 |---|---|---|---|
@@ -71,7 +74,7 @@ abierta.
 
 ## 6:30-7:30 · Transformers: clásico vs. OWLv2 y profundidad
 
-**En pantalla:** UI → **Transformers**, con la cámara en vivo y los dos jugadores.
+**En pantalla:** laboratorio → **Transformers**, con la cámara en vivo y los dos jugadores.
 
 1. Depth Anything: mapa de profundidad y, por jugador, "mano delante del cuerpo: golpe válido".
 2. Comparación por mitad: cajas clásicas (naranja) vs. OWLv2 (verde), latencias (~25 ms vs. ~500 ms), IoU y
@@ -82,7 +85,7 @@ abierta.
 
 ## 7:30-9:30 · Partida de dos jugadores con el panel de depuración
 
-**En pantalla:** `python jugar.py --modo 2j`.
+**En pantalla:** `python jugar.py` → **Ajustes** (puntos, "Ver cómo te detecta") → **2 jugadores**.
 
 1. Calibración de la piel: cada jugador cubre su recuadro naranja y se pulsa `ESPACIO`.
 2. Señalar arriba de cada mitad "midiendo…" → "plano a 60 cm" (la distancia de referencia de cada jugador).
@@ -91,7 +94,8 @@ abierta.
 4. Jugar un par de puntos: un **remate** con la mano abierta, un **toque** con un dedo. Mostrar un golpe inválido
    acercando mucho la mano a la cámara (punto rojo).
 5. Pulsar `C`: sin calibración la distancia medida cambia y los golpes empiezan a salir inválidos. Volver a `C`.
-6. Mostrar 20 s del juego en el Space (pestaña **Jugar → En el navegador**).
+6. `ESC` para mostrar el menú de pausa; terminar la partida y mostrar **Revancha**.
+7. Mostrar 20 s del juego en el Space (menú de inicio → **2 jugadores**).
 
 **Código a mostrar (breve):** `juego/partida.py` → `_intentar_golpe` y `juego/bucle.py` → `_validar`.
 

@@ -4,14 +4,16 @@ Una cámara web y dos jugadores lado a lado frente a ella (o uno contra la IA).
 La mitad izquierda de la imagen es del jugador 1, la derecha del jugador 2, y la
 cancha, la red y el balón se dibujan encima. Lo único físico son las manos.
 
-Teclas:
-    ESPACIO  capturar el color de la piel de cada jugador (al inicio)
-    D        panel de depuración (máscaras, caras, contorno, casco, punta, distancias, FPS)
-    C        alternar con calibración / sin calibración
+Se juega como cualquier juego: un menú de inicio (contra la IA, 2 jugadores,
+ajustes), la calibración de la piel, la partida, la pausa (ESC) y la revancha.
+Todo se puede elegir con el mouse o con las teclas que aparecen en los botones.
+
+Atajos durante la partida:
+    ESPACIO  capturar el color de la piel (al inicio)
+    ESC      pausa (seguir, recalibrar la piel, reiniciar, menú, salir)
+    D        ver cómo te detecta (máscaras, caras, contorno, casco, distancias, FPS)
+    C        con calibración / sin calibración
     O        detector de la mano: clásico / OWLv2
-    P        recalibrar la piel
-    R        reiniciar la partida
-    Q / ESC  salir
 
 Modo sintético (sin cámara): el mouse mueve la mano del jugador 1, 0-5 cambia
 sus dedos y W/S la acerca o la aleja; en 2 jugadores, I/J/K/L mueve la mano del
@@ -55,6 +57,13 @@ class OpcionesJuego:
     headless: bool = False
     max_frames: int | None = None
     semilla: int | None = None
+    menu: bool = False  # empezar en el menú de inicio (ventana)
+    interfaz: str = "ventana"  # "ventana" (teclas y mouse) o "web" (botones de la página)
+
+
+DIFICULTADES = ("facil", "normal", "dificil")
+NOMBRE_DIFICULTAD = {"facil": "fácil", "normal": "normal", "dificil": "difícil"}
+PUNTOS = (7, 11, 15)
 
 
 @dataclass
@@ -74,7 +83,8 @@ class Juego:
             if op.sintetico:
                 from voleyar.utils.sinteticos import FuentePantalla, camara_ejemplo
 
-                fuente = FuentePantalla(camara_ejemplo(op.ancho, op.alto), n_jugadores=len(self.lados))
+                fuente = FuentePantalla(camara_ejemplo(op.ancho, op.alto), n_jugadores=2)
+                fuente.jugadores[1].mano_visible = op.modo == "2j"
             else:
                 from voleyar.utils.camara import FuenteCamara
 
@@ -94,6 +104,9 @@ class Juego:
         self.partida = Partida(IARival.con_dificultad(op.dificultad, op.semilla), puntos_para_ganar=op.puntos,
                                modo=op.modo)
         self.fase = "calibrar_piel"
+        self.pantalla = "menu" if op.menu else "juego"  # menu, ajustes o juego
+        self.pausado = False
+        self.botones: list = []
         self.t_cuenta: float | None = None
         self.depurar = False
         self.usar_owl = False
@@ -144,6 +157,115 @@ class Juego:
         caras = [c for c in res.caras if (c[0] + c[2] / 2 < w / 2) == (lado < 0)]
         return caras[0] if caras else None
 
+    # ------------------------------------------------------------ partidas
+    def nueva_partida(self, modo: str | None = None, dificultad: str | None = None, puntos: int | None = None) -> None:
+        """Empieza una partida nueva (mismo modo o uno distinto). Si los jugadores ya
+        calibraron su piel, se conserva y se juega directamente."""
+        if modo is not None:
+            self.op.modo = modo
+        if dificultad is not None:
+            self.op.dificultad = dificultad
+        if puntos is not None:
+            self.op.puntos = puntos
+        self.lados = (-1,) if self.op.modo == "ia" else (-1, 1)
+        viejos = getattr(self, "jugadores", {})
+        self.jugadores = {lado: EstadoJugador(piel=viejos[lado].piel if lado in viejos else None) for lado in self.lados}
+        self.partida = Partida(IARival.con_dificultad(self.op.dificultad, self.op.semilla),
+                               puntos_para_ganar=self.op.puntos, modo=self.op.modo)
+        if self.sintetico and len(self.fuente.jugadores) > 1:
+            self.fuente.jugadores[1].mano_visible = self.op.modo == "2j"
+        self.fase = "jugando" if all(j.piel is not None for j in self.jugadores.values()) else "calibrar_piel"
+        self.pantalla, self.pausado, self.t_cuenta = "juego", False, None
+
+    def accion(self, accion: str) -> bool:
+        """Ejecuta una opción de menú. Devuelve False para salir del juego."""
+        if accion == "salir":
+            return False
+        if accion in ("ia", "2j"):
+            self.nueva_partida(accion)
+        elif accion == "ajustes":
+            self.pantalla = "ajustes"
+        elif accion == "menu":
+            self.pantalla, self.pausado = "menu", False
+        elif accion == "dificultad":
+            i = DIFICULTADES.index(self.op.dificultad)
+            self.op.dificultad = DIFICULTADES[(i + 1) % len(DIFICULTADES)]
+        elif accion == "puntos":
+            self.op.puntos = PUNTOS[(PUNTOS.index(self.op.puntos) + 1) % len(PUNTOS)] if self.op.puntos in PUNTOS else 15
+        elif accion == "ver_deteccion":
+            self.depurar = not self.depurar
+        elif accion == "calibracion" and self.modelo_camara is not None:
+            self.config.usar_calibracion = not self.config.usar_calibracion
+            self.estado_pipe = pl.EstadoPipeline()
+            for j in self.jugadores.values():  # la distancia de referencia cambia con la K
+                j.z_ref, j.muestras = None, []
+        elif accion == "pausa":
+            self.pausado = not self.pausado
+        elif accion == "seguir":
+            self.pausado = False
+        elif accion == "reiniciar":
+            self.partida.reiniciar()
+            self.pausado = False
+        elif accion == "revancha":
+            self.nueva_partida()
+        elif accion == "piel":
+            self.fase, self.pausado = "calibrar_piel", False
+            for j in self.jugadores.values():
+                j.piel, j.z_ref, j.muestras = None, None, []
+        elif accion == "listo" and self.fase == "calibrar_piel":
+            self.t_cuenta = time.perf_counter() + 1.5
+        elif accion == "owl":
+            self.usar_owl = not self.usar_owl
+        return True
+
+    def _botones_actuales(self) -> list:
+        """Botones del menú visible ahora (o lista vacía si se está jugando)."""
+        from voleyar.juego.menus import Boton
+
+        if self.pantalla == "menu":
+            return [Boton("Contra la IA", "ia", "1", principal=True), Boton("2 jugadores", "2j", "2", principal=True),
+                    Boton("Ajustes", "ajustes", "a"), Boton("Salir", "salir", "q")]
+        if self.pantalla == "ajustes":
+            cal = ("sí" if self.config.usar_calibracion else "no") if self.modelo_camara is not None else "sin calibrar"
+            return [Boton(f"Dificultad de la IA: {NOMBRE_DIFICULTAD[self.op.dificultad]}", "dificultad", "d"),
+                    Boton(f"Partida a {self.op.puntos} puntos", "puntos", "p"),
+                    Boton(f"Ver cómo te detecta: {'sí' if self.depurar else 'no'}", "ver_deteccion", "v"),
+                    Boton(f"Usar la calibración: {cal}", "calibracion", "c"),
+                    Boton("Volver", "menu", "m", principal=True)]
+        if self.op.interfaz == "web":
+            return []
+        if self.partida.estado == "fin":
+            return [Boton("Revancha", "revancha", "r", principal=True), Boton("Menú principal", "menu", "m"),
+                    Boton("Salir", "salir", "q")]
+        if self.pausado:
+            return [Boton("Seguir", "seguir", "s", principal=True), Boton("Recalibrar la piel", "piel", "p"),
+                    Boton("Reiniciar la partida", "reiniciar", "r"), Boton("Menú principal", "menu", "m"),
+                    Boton("Salir", "salir", "q")]
+        return []
+
+    def _dibujar_menu(self, img: np.ndarray) -> np.ndarray:
+        from voleyar.juego.menus import dibujar_cartel, dibujar_menu
+
+        self.botones = self._botones_actuales()
+        m, n = self.partida.marcador, self.partida.nombres
+        marcador = f"{n[JUGADOR]} {m[JUGADOR]} – {m[RIVAL]} {n[RIVAL]}"
+        if self.pantalla == "menu":
+            cam = ("cámara calibrada" if self.modelo_camara is not None
+                   else "cámara sin calibrar (python scripts/calibrar_camara.py)")
+            return dibujar_menu(img, "Voley AR", self.botones, "Voleibol con tus manos, sin nada más que la cámara",
+                                f"Uno a cada lado de la imagen · {cam}")
+        if self.pantalla == "ajustes":
+            return dibujar_menu(img, "Ajustes", self.botones)
+        if self.partida.estado == "fin":
+            if self.op.interfaz == "web":
+                return dibujar_cartel(img, self.partida.mensaje, marcador)
+            return dibujar_menu(img, self.partida.mensaje, self.botones, marcador, oscuro=0.5)
+        if self.pausado:
+            if self.op.interfaz == "web":
+                return dibujar_cartel(img, "Pausa", "Pulsa Seguir para continuar")
+            return dibujar_menu(img, "Pausa", self.botones, oscuro=0.5)
+        return img
+
     # ------------------------------------------------------------ un frame
     def paso(self) -> np.ndarray | None:
         ok, frame = self.fuente.leer()
@@ -154,6 +276,9 @@ class Juego:
         self._t_prev = ahora
         self.fps = 0.9 * self.fps + 0.1 * (1.0 / max(dt, 1e-3)) if self.n_frame else 0.0
         self.n_frame += 1
+        if self.pantalla in ("menu", "ajustes"):
+            fondo, _ = pl.preparar_imagen(frame, self.modelo_camara, self.config)
+            return self._dibujar_menu(fondo)
 
         pieles = {lado: self.jugadores[lado].piel for lado in self.lados}
         res = pl.procesar_frame(frame, self.modelo_camara, pieles, self.config, self.estado_pipe, ahora,
@@ -193,20 +318,22 @@ class Juego:
             entradas = self._entradas_owl(res, entradas)
 
         # --- partida y render ---------------------------------------------------------------
-        ev = self.partida.actualizar(dt, entradas.get(-1), entradas.get(1))
-        self.eventos_totales += ev
+        if not self.pausado:
+            ev = self.partida.actualizar(dt, entradas.get(-1), entradas.get(1))
+            self.eventos_totales += ev
         ia_xy = self.partida.ia.pos if self.op.modo == "ia" else None
         img = ra.dibujar_escena_pantalla(img, res.pose, res.modelo, self.partida.balon.pos, ia_xy,
                                          self.partida.ia.altura_golpe, self.partida.marcas, self.partida.t,
                                          giro=int(self.partida.t * 8))
         if self.depurar:
             img = pl.dibujar_depuracion(res, img)
-        mensaje = self.partida.mensaje + (" · R para jugar otra vez" if self.partida.estado == "fin" else "")
+        mensaje = "" if self.partida.estado == "fin" else self.partida.mensaje
         m = self.partida.marcador
         n = self.partida.nombres
         ra.dibujar_hud(img, (m[JUGADOR], m[RIVAL]), mensaje, self._modo_texto(), self.fps, "", None, None,
                        "OWLv2" if self.usar_owl else "clásico", (n[JUGADOR], n[RIVAL]))
         self._estado_jugadores(img, res)
+        img = self._dibujar_menu(img)
         if self.depurar:
             img = self._panel_depuracion(img, res, mapa)
         return img
@@ -272,8 +399,15 @@ class Juego:
             cv2.line(img, (W // 2, 0), (W // 2, H), vis.BGR_NEUTRO, 1, cv2.LINE_AA)
         vis.poner_texto(img, "Calibración de la piel", (20, 18), tam + 6, vis.BGR_NEUTRO, True, fondo=vis.BGR_GRAFITO)
         quien = "Cada jugador cubre su recuadro" if len(self.lados) == 2 else "Cubre el recuadro"
-        vis.poner_texto(img, f"{quien} con la palma, a la distancia a la que va a jugar, y presiona ESPACIO",
-                        (20, 24 + tam + 14), tam, vis.BGR_NEUTRO, fondo=vis.BGR_GRAFITO)
+        web = self.op.interfaz == "web"
+        if len(self.lados) == 2:
+            lineas = [f"{quien} con la palma",
+                      f"a la distancia de juego y {'pulsen ¡Listo!' if web else 'presionen ESPACIO'}"]
+        else:
+            lineas = ["Cubre el recuadro con la palma",
+                      f"a la distancia de juego y {'pulsa ¡Listo!' if web else 'presiona ESPACIO'}"]
+        for k, linea in enumerate(lineas):
+            vis.poner_texto(img, linea, (20, 24 + (tam + 14) * (k + 1)), tam, vis.BGR_NEUTRO, fondo=vis.BGR_GRAFITO)
         if self.t_cuenta is not None:
             falta = self.t_cuenta - ahora
             if falta <= 0:
@@ -335,26 +469,27 @@ class Juego:
     # ------------------------------------------------------------ teclado/mouse
     def tecla(self, k: int) -> bool:
         """Procesa una tecla. Devuelve False para salir."""
-        if k in (ord("q"), 27):
-            return False
-        if k == ord(" ") and self.fase == "calibrar_piel":
-            self.t_cuenta = time.perf_counter() + 1.5
-        elif k == ord("d"):
-            self.depurar = not self.depurar
-        elif k == ord("c") and self.modelo_camara is not None:
-            self.config.usar_calibracion = not self.config.usar_calibracion
-            self.estado_pipe = pl.EstadoPipeline()
-            for j in self.jugadores.values():  # la distancia de referencia cambia con la K
-                j.z_ref, j.muestras = None, []
-        elif k == ord("o"):
-            self.usar_owl = not self.usar_owl
-        elif k == ord("p"):
-            self.fase = "calibrar_piel"
-            for j in self.jugadores.values():
-                j.piel, j.z_ref, j.muestras = None, None, []
-        elif k == ord("r"):
-            self.partida.reiniciar()
-        elif self.sintetico:
+        from voleyar.juego.menus import boton_por_tecla
+
+        if k == 255:  # ninguna tecla
+            return True
+        botones = self._botones_actuales()
+        if botones:  # hay un menú en pantalla: sus teclas mandan
+            accion = boton_por_tecla(botones, k)
+            if accion is not None:
+                return self.accion(accion)
+            if k == 27:
+                return self.accion("seguir" if self.pausado else ("menu" if self.pantalla == "ajustes" else "salir"))
+            return True
+        if k == 27:
+            return self.accion("pausa")
+        if k == ord(" "):
+            return self.accion("listo")
+        acciones = {ord("d"): "ver_deteccion", ord("c"): "calibracion", ord("o"): "owl", ord("p"): "pausa",
+                    ord("r"): "reiniciar", ord("q"): "pausa"}
+        if k in acciones:
+            return self.accion(acciones[k])
+        if self.sintetico:
             self._tecla_sintetica(k)
         return True
 
@@ -375,7 +510,14 @@ class Juego:
                 j2.n_dedos = (j2.n_dedos + 1) % 6
 
     def _mouse(self, evento, x, y, flags, param) -> None:
-        if not self.sintetico or self.ultimo_res is None:
+        from voleyar.juego.menus import boton_en
+
+        if evento == cv2.EVENT_LBUTTONUP and self.botones:
+            accion = boton_en(self.botones, x, y)
+            if accion is not None:
+                self._salir = not self.accion(accion)
+            return
+        if not self.sintetico or self.ultimo_res is None or self.botones:
             return
         res = self.ultimo_res
         if x >= res.imagen.shape[1]:
@@ -399,7 +541,7 @@ class Juego:
                         break
                     continue
                 cv2.imshow(VENTANA, img)
-                if not self.tecla(cv2.waitKey(1) & 0xFF):
+                if not self.tecla(cv2.waitKey(1) & 0xFF) or getattr(self, "_salir", False):
                     break
                 if cv2.getWindowProperty(VENTANA, cv2.WND_PROP_VISIBLE) < 1:
                     break

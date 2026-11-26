@@ -9,10 +9,9 @@ from voleyar.ui.pestanas import (calibracion, caracterizacion, filtros, histogra
 
 
 def test_la_app_se_construye():
-    from voleyar.ui.app import PESTANAS, crear_app
+    from voleyar.ui.app import crear_app
 
-    demo = crear_app()
-    assert demo is not None and len(PESTANAS) == 10
+    assert crear_app() is not None
 
 
 @pytest.mark.parametrize("nombre", list(estado.EJEMPLOS))
@@ -63,33 +62,46 @@ def test_calibracion_simulada_desde_la_ui():
     assert res.modelo.error_rms < 0.5 and "fx" not in js
 
 
-def test_juego_del_navegador_con_los_manejadores_de_gradio():
-    """Simula el stream de la cámara y los botones: el estado (sesión y juego) pasa de llamada en llamada."""
+def test_juego_web_con_los_manejadores_de_gradio():
+    """Simula la página del juego: botón de modo, stream de la cámara y botones de la partida."""
     import time
 
     from voleyar.core import pipeline as pl
+    from voleyar.ui import juego_web as jw
     from voleyar.ui.estado import con_sesion
-    from voleyar.ui.pestanas import jugar
     from voleyar.utils import sinteticos as s
     from voleyar.utils import visualizacion as vis
 
     modelo = s.camara_ejemplo(640, 360)
     fuente = s.FuentePantalla(modelo)
-    frame = con_sesion(jugar.jugar_frame)
-    espacio = con_sesion(jugar.tecla(" "))
-    sesion, juego = None, None
-    sesion, img, juego = frame(sesion, vis.bgr_a_rgb(fuente.leer()[1]), juego, "2j")
-    sesion.modelo_camara = modelo  # como si hubiera calibrado en la pestaña Calibración
-    sesion, juego = espacio(sesion, juego, "2j")
-    juego.t_cuenta = time.perf_counter()
+    ajustes = jw.guardar_ajustes("facil", 7, True, True)
+    empezar = con_sesion(lambda j, a: jw.empezar(j, "2j", a))
+    frame = con_sesion(jw.jugar_frame)
+    sesion, juego, modo, *pantallas = empezar(None, None, ajustes)
+    assert modo == "2j" and juego.op.interfaz == "web" and juego.op.puntos == 7
+    assert [p.visible for p in pantallas] == [p == "juego" for p in jw.PANTALLAS]
+    sesion.modelo_camara = modelo  # como si hubiera calibrado en esta sesión
+    sesion, img, juego = frame(sesion, vis.bgr_a_rgb(fuente.leer()[1]), juego, modo, ajustes)
     K = juego.ultimo_res.modelo.K
     for lado, jug in zip((-1, 1), fuente.jugadores):
         x, y, w, h = pl.recuadro_piel(juego.ultimo_res.imagen.shape, lado)
         jug.mano = ((x + w / 2 - K[0, 2]) / K[0, 0] * jug.distancia, (y + h / 2 - K[1, 2]) / K[1, 1] * jug.distancia)
-    for _ in range(10):
-        sesion, img, juego = frame(sesion, vis.bgr_a_rgb(fuente.leer()[1]), juego, "2j")
-    assert juego.fase == "jugando" and juego.config.usar_calibracion and juego.op.modo == "2j"
-    assert img.shape == (360, 640, 3)
-    # Cambiar de modo crea un juego nuevo
-    sesion, img, juego2 = frame(sesion, vis.bgr_a_rgb(fuente.leer()[1]), juego, "ia")
-    assert juego2 is not juego and juego2.op.modo == "ia"
+    juego = jw.accion("listo")(juego)
+    juego.t_cuenta = time.perf_counter()
+    for _ in range(5):
+        sesion, img, juego = frame(sesion, vis.bgr_a_rgb(fuente.leer()[1]), juego, modo, ajustes)
+    assert juego.fase == "jugando" and juego.config.usar_calibracion and juego.depurar
+    assert img.shape[0] == 360 and img.shape[1] > 640  # "ver cómo te detecta" agrega el panel
+    juego = jw.accion("pausa")(juego)
+    assert juego.pausado
+    # Volver al menú y elegir otro modo conserva la piel del jugador 1
+    sesion, juego2, modo2, *_ = con_sesion(lambda j, a: jw.empezar(j, "ia", a))(sesion, juego, ajustes)
+    assert juego2 is juego and juego.op.modo == "ia" and juego.fase == "jugando" and not juego.pausado
+
+
+def test_la_app_tiene_el_juego_y_el_laboratorio_aparte():
+    from voleyar.ui.app import crear_app, crear_laboratorio
+    from voleyar.ui.laboratorio import PESTANAS
+
+    assert crear_app() is not None and crear_laboratorio() is not None
+    assert "Jugar" not in [n for n, _ in PESTANAS] and len(PESTANAS) == 9

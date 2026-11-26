@@ -1,4 +1,4 @@
-"""Lanza el laboratorio interactivo de Voley AR (Gradio, local).
+"""Lanza Voley AR en el navegador (Gradio, local): el juego con su menú y, en /laboratorio, los temas del curso.
 
 Uso::
 
@@ -15,7 +15,7 @@ import argparse  # noqa: E402
 from voleyar.ui.app import lanzar  # noqa: E402
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Laboratorio de Voley AR")
+    ap = argparse.ArgumentParser(description="Voley AR en el navegador")
     ap.add_argument("--puerto", type=int, default=7860)
     ap.add_argument("--no-abrir", action="store_true", help="no abrir el navegador")
     a = ap.parse_args()

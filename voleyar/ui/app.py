@@ -1,52 +1,34 @@
-"""Aplicación de Gradio: una pestaña por tema del curso, más Pipeline y Jugar."""
+"""Aplicación web: el juego es la página principal; el laboratorio vive en ``/laboratorio``."""
 
 from __future__ import annotations
 
 import gradio as gr
 
 from voleyar.entorno import EN_SPACE
+from voleyar.ui import juego_web, laboratorio
 from voleyar.ui.comunes import nueva_sesion_componente
-from voleyar.ui.estado import ESTADO
-from voleyar.ui.pestanas import (calibracion, caracterizacion, filtros, histogramas, jugar, morfologia, pipeline,
-                                 segmentacion, transformers, umbralizacion)
 from voleyar.ui.tema import CSS, crear_tema
 
-PESTANAS = [
-    ("Calibración", calibracion),
-    ("Filtros", filtros),
-    ("Histogramas", histogramas),
-    ("Umbralización", umbralizacion),
-    ("Morfología", morfologia),
-    ("Segmentación", segmentacion),
-    ("Caracterización", caracterizacion),
-    ("Transformers", transformers),
-    ("Pipeline", pipeline),
-    ("Jugar", jugar),
-]
 
-
-def crear_app() -> gr.Blocks:
-    with gr.Blocks(title="Voley AR · Laboratorio de Visión Artificial") as demo:
-        gr.Markdown("# Voley AR")
+def crear_app(con_laboratorio: bool = True) -> gr.Blocks:
+    with gr.Blocks(title="Voley AR") as demo:
+        gr.Navbar(visible=False)
         nueva_sesion_componente()
-        if EN_SPACE:
-            estado_cam = ("versión en línea: calibra tu cámara en la pestaña Calibración y jueguen en la pestaña "
-                          "Jugar, un jugador a cada lado de la imagen (o tú contra la IA)")
-        else:
-            estado_cam = ("cámara calibrada (config/camara.json)" if ESTADO.modelo_camara is not None
-                          else "cámara **sin calibrar**: empieza por la pestaña Calibración")
-        gr.Markdown("Voleibol en realidad aumentada: la cancha, la red y el balón se dibujan en la pantalla y se juega "
-                    "con las manos, uno contra uno o contra la IA. Proyecto final de Visión Artificial · "
-                    f"Jorge Enrique Olaya Liévano · {estado_cam}.")
-        with gr.Tabs():
-            for nombre, modulo in PESTANAS:
-                with gr.Tab(nombre):
-                    modulo.construir(demo)
+        juego_web.construir(demo)
+    if con_laboratorio:
+        with demo.route("Laboratorio", "/laboratorio", show_in_navbar=False):
+            laboratorio.construir(demo)
     return demo
 
 
-def lanzar(puerto: int = 7860, abrir: bool = True, compartir: bool = False) -> None:
-    demo = crear_app()
+def crear_laboratorio() -> gr.Blocks:
+    with gr.Blocks(title="Voley AR · Laboratorio") as demo:
+        laboratorio.construir(demo)
+    return demo
+
+
+def lanzar(puerto: int = 7860, abrir: bool = True, compartir: bool = False, solo_laboratorio: bool = False) -> None:
+    demo = crear_laboratorio() if solo_laboratorio else crear_app()
     if EN_SPACE:
         # ZeroGPU: los modelos se cargan una vez al arrancar (fuera de @spaces.GPU)
         from voleyar.core.transformers_models import precargar_modelos
