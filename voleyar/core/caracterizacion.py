@@ -303,3 +303,108 @@ class EstimadorVelocidad:
     @property
     def rapidez(self) -> float:
         return float(np.linalg.norm(self.vel))
+
+
+# =========================================================================== #
+# ¿Es de verdad una mano? Validación por forma y seguimiento en el tiempo
+# =========================================================================== #
+
+
+@dataclass
+class ValidacionMano:
+    valida: bool
+    confianza: float  # 0-1
+    motivos: list[str]  # por qué se rechazó (vacío si es válida)
+
+
+def validar_mano(analisis: AnalisisMano | None, descriptores: Descriptores | None, f: float,
+                 prob_piel: float | None = None, radio_palma_cm: float = 3.5,
+                 z_min: float = 35.0, z_max: float = 130.0) -> ValidacionMano:
+    r"""Decide si una región de piel tiene la forma de una mano (caracterización como filtro).
+
+    - **Tamaño**: con el radio de la palma :math:`r` (px) la distancia sería
+      :math:`Z = f\,W/r`; si queda fuera de lo posible para alguien jugando
+      (35-130 cm), no es una mano. Una cara que se escapó del detector de caras se ve
+      como una "palma" enorme, a menos de ~32 cm: se descarta por eso.
+    - **Área/palma**: el área de la mano dividida por el área del círculo de la palma
+      :math:`\pi r^2` está entre ~0.75 (puño) y ~4.5 (mano abierta con dedos largos).
+    - **Solidez** :math:`A/A_{casco}`: entre 0.4 (dedos muy abiertos) y 0.99.
+    - **Piel**: la probabilidad media de la retroproyección dentro de la región.
+
+    La confianza es el producto de puntajes suaves; es válida si no hay motivos de
+    rechazo.
+    """
+    if analisis is None or descriptores is None:
+        return ValidacionMano(False, 0.0, ["sin región"])
+    motivos, puntajes = [], []
+    r = max(analisis.radio_palma, 1.0)
+    z = f * radio_palma_cm / r
+    if not z_min <= z <= z_max:
+        motivos.append(f"tamaño imposible para una mano (estaría a {z:.0f} cm)")
+    puntajes.append(1.0 if z_min <= z <= z_max else 0.2)
+    rel = descriptores.area / (np.pi * r * r)
+    if not 0.75 <= rel <= 4.5:
+        motivos.append(f"área/palma = {rel:.2f}")
+    puntajes.append(float(np.clip(1.0 - max(0.0, 0.75 - rel, rel - 4.5), 0.1, 1.0)))
+    if not 0.4 <= descriptores.solidez <= 0.99:
+        motivos.append(f"solidez = {descriptores.solidez:.2f}")
+    puntajes.append(1.0 if 0.4 <= descriptores.solidez <= 0.99 else 0.3)
+    if prob_piel is not None:
+        if prob_piel < 0.25:
+            motivos.append(f"poca piel ({prob_piel:.2f})")
+        puntajes.append(float(np.clip(prob_piel / 0.5, 0.1, 1.0)))
+    return ValidacionMano(not motivos, float(np.prod(puntajes)), motivos)
+
+
+class SeguidorMano:
+    """Presencia estable de la mano de un jugador (histéresis) y gesto suavizado.
+
+    - **Aparece** tras ``frames_aparecer`` frames válidos seguidos y, si se pide
+      movimiento, solo si la región se movió en alguno de ellos (un objeto de color
+      piel que nunca se mueve no se confunde con una mano).
+    - **Desaparece** tras ``frames_desaparecer`` frames sin mano válida: un frame
+      malo no la hace parpadear.
+    - El **gesto** es el más frecuente de los últimos ``ventana_gesto`` frames.
+    """
+
+    def __init__(self, frames_aparecer: int = 3, frames_desaparecer: int = 6, ventana_gesto: int = 5,
+                 movimiento_min: float = 0.04):
+        self.frames_aparecer = frames_aparecer
+        self.frames_desaparecer = frames_desaparecer
+        self.ventana_gesto = ventana_gesto
+        self.movimiento_min = movimiento_min
+        self.reiniciar()
+
+    def reiniciar(self) -> None:
+        self.presente = False
+        self._validos = 0
+        self._invalidos = 0
+        self._se_movio = False
+        self._dedos: list[int] = []
+
+    def actualizar(self, valida: bool, n_dedos: int | None = None, movimiento: float | None = None) -> bool:
+        """``movimiento``: fracción de la región que cambió respecto al fondo (``None`` = no se exige)."""
+        if valida:
+            self._validos += 1
+            self._invalidos = 0
+            if movimiento is None or movimiento >= self.movimiento_min:
+                self._se_movio = True
+            if n_dedos is not None:
+                self._dedos = (self._dedos + [int(n_dedos)])[-self.ventana_gesto:]
+            if not self.presente and self._validos >= self.frames_aparecer and self._se_movio:
+                self.presente = True
+        else:
+            self._invalidos += 1
+            self._validos = 0
+            if self._invalidos >= self.frames_desaparecer:
+                self.presente = False
+                self._se_movio = False
+                self._dedos = []
+        return self.presente
+
+    @property
+    def dedos_estables(self) -> int | None:
+        if not self._dedos:
+            return None
+        valores, cuentas = np.unique(self._dedos, return_counts=True)
+        return int(valores[np.argmax(cuentas)])

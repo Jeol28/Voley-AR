@@ -62,6 +62,8 @@ class ConfigPipeline:
     excluir_caras: bool = True
     caras_cada: int = 3  # la cascada Haar corre cada N frames y se reutiliza el resultado
     memoria_caras: int = 90  # frames que se recuerda una cara perdida (la mano la tapa al jugar)
+    seguimiento: bool = False  # presencia estable en el tiempo (histéresis + movimiento); el juego lo activa
+    exigir_movimiento: bool = True  # con seguimiento: una mano nueva tiene que haberse movido
     area_min_frac: float = 0.004  # área mínima de la mano como fracción de la imagen
 
 
@@ -72,6 +74,8 @@ class EstadoPipeline:
     caras: list[tuple[int, int, int, int]] = field(default_factory=list)
     caras_por_lado: dict[int, tuple] = field(default_factory=dict)  # última cara de cada mitad y su frame
     n_frame: int = 0
+    seguidores: dict[int, car.SeguidorMano] = field(default_factory=lambda: {lado: car.SeguidorMano() for lado in LADOS})
+    movimiento: seg.DetectorMovimiento = field(default_factory=seg.DetectorMovimiento)
 
 
 @dataclass
@@ -96,10 +100,25 @@ class ResultadoMano:
     punto_plano: np.ndarray | None = None  # (x, 0, z) en unidades de la cancha virtual
     rayo: tuple[np.ndarray, np.ndarray] | None = None
     velocidad: np.ndarray = field(default_factory=lambda: np.zeros(2))  # (vx, vz) en unidades de cancha / s
+    validacion: car.ValidacionMano | None = None  # ¿la región tiene forma de mano?
+    movimiento: float | None = None  # fracción de la región en movimiento (sustracción de fondo)
+    presente: bool | None = None  # con seguimiento: presencia estable en el tiempo
+    dedos_estables: int | None = None  # gesto suavizado en el tiempo
 
     @property
     def hay_mano(self) -> bool:
-        return self.analisis is not None and self.punto_plano is not None
+        """Hay una mano jugable: región analizada, con forma de mano y (con seguimiento) presente."""
+        if self.analisis is None or self.punto_plano is None:
+            return False
+        if self.validacion is not None and not self.validacion.valida:
+            return False
+        return self.presente is not False
+
+    @property
+    def gesto(self) -> tuple[str, float]:
+        """Gesto y fuerza del golpe (suavizados si hay seguimiento)."""
+        n = self.dedos_estables if self.dedos_estables is not None else (self.analisis.n_dedos if self.analisis else 0)
+        return car.GESTOS[int(np.clip(n, 0, 5))]
 
 
 @dataclass
@@ -113,6 +132,7 @@ class ResultadoFrame:
     clahe: np.ndarray | None = None
     suavizada: np.ndarray | None = None
     manos: dict[int, ResultadoMano] = field(default_factory=dict)
+    movimiento: np.ndarray | None = None  # primer plano en movimiento (MOG2), si hay seguimiento
     tiempos_ms: dict[str, float] = field(default_factory=dict)
 
     def mano(self, lado: int) -> ResultadoMano | None:
@@ -218,12 +238,13 @@ def seleccionar_mano_pantalla(mascara: np.ndarray, abajo: np.ndarray, area_min: 
 
 def _procesar_mano(lado: int, suav: np.ndarray, piel: his.ModeloPiel | None, prohibido: np.ndarray | None,
                    modelo: cal.ModeloCamara, pose: cal.Pose, config: ConfigPipeline, estado: EstadoPipeline,
-                   t: float) -> ResultadoMano:
+                   t: float, movimiento: np.ndarray | None = None) -> ResultadoMano:
     # La cara NO se recorta de la zona: la mano pasa a menudo por delante de ella
     # (el balón vuela a esa altura). Se usa para descartar regiones y como marcador.
     zona = seg.mascara_mitad(suav.shape, lado)
     r = ResultadoMano(lado, zona)
     vel = estado.velocidades[lado]
+    seguidor = estado.seguidores[lado] if config.seguimiento else None
     if piel is not None:
         r.retro = his.retroproyeccion(suav, piel, config.espacio_retro, config.disco_retro, zona)
         r.mascara_umbral, r.T_otsu = umb.umbral_piel_otsu(r.retro, zona, config.t_min_otsu)
@@ -235,6 +256,8 @@ def _procesar_mano(lado: int, suav: np.ndarray, piel: his.ModeloPiel | None, pro
     r.contorno, r.componente = seleccionar_mano_pantalla(r.mascara_limpia, abajo, area_min, prohibido)
     if r.contorno is None:
         r.velocidad = vel.actualizar(None, t)
+        if seguidor is not None:
+            r.presente = seguidor.actualizar(False)
         return r
     if prohibido is not None and np.count_nonzero(cv2.bitwise_and(r.componente, prohibido)):
         sin_cara, r.etiquetas_ws = seg.separar_de_la_cara(suav, r.componente, prohibido)
@@ -250,6 +273,8 @@ def _procesar_mano(lado: int, suav: np.ndarray, piel: his.ModeloPiel | None, pro
     r.analisis = car.analizar_mano(r.mascara_mano, r.info_corte.direccion_brazo, k_dedo=config.k_dedo)
     if r.analisis is None:
         r.velocidad = vel.actualizar(None, t)
+        if seguidor is not None:
+            r.presente = seguidor.actualizar(False)
         return r
     a = r.analisis
     r.descriptores = car.descriptores_forma(r.mascara_mano, a.contorno)
@@ -259,7 +284,17 @@ def _procesar_mano(lado: int, suav: np.ndarray, piel: his.ModeloPiel | None, pro
     r.cm_por_px = r.distancia_cm / f
     r.punto_plano = cal.pixel_a_plano(r.punto_golpe_px, pose, modelo, eje=1, valor=0.0)
     r.rayo = cal.rayo_desde_pixel(r.punto_golpe_px, pose, modelo)
-    r.velocidad = vel.actualizar(None if r.punto_plano is None else r.punto_plano[[0, 2]], t)
+    # ¿Es de verdad una mano? Forma (caracterización) + piel; y en el juego, presencia estable en el tiempo
+    prob = (float(r.retro[r.mascara_mano > 0].mean()) / 255.0) if r.retro is not None else None
+    r.validacion = car.validar_mano(a, r.descriptores, f, prob, cfgc.PALMA_RADIO_CM)
+    if seguidor is not None:
+        mov = seg.fraccion_en_movimiento(r.mascara_mano, movimiento) if config.exigir_movimiento else None
+        r.movimiento = mov
+        r.presente = seguidor.actualizar(r.validacion.valida, a.n_dedos, mov if mov is not None else
+                                         (None if not config.exigir_movimiento else 0.0))
+        r.dedos_estables = seguidor.dedos_estables if r.presente else None
+    ok = r.hay_mano
+    r.velocidad = vel.actualizar(r.punto_plano[[0, 2]] if ok and r.punto_plano is not None else None, t)
     return r
 
 
@@ -311,9 +346,11 @@ def procesar_frame(frame: np.ndarray, modelo_camara: cal.ModeloCamara | None,
     marca("caras")
     res.clahe, res.suavizada = preprocesar(img, config)
     marca("clahe+suavizado")
+    movimiento = estado.movimiento.aplicar(img) if config.seguimiento and config.exigir_movimiento else None
+    res.movimiento = movimiento
     for lado in lados:
         res.manos[lado] = _procesar_mano(lado, res.suavizada, pieles.get(lado), res.mascara_caras, modelo, pose,
-                                         config, estado, t)
+                                         config, estado, t, movimiento)
         marca(f"mano {'J1' if lado < 0 else 'J2'}")
     return res
 

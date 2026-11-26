@@ -288,8 +288,15 @@ def _segmentacion(juego, res, img):
             cv2.line(out, r.info_corte.corte[0], r.info_corte.corte[1], vis.BGR_ROJO, 3, cv2.LINE_AA)
     for x, y, cw, ch in res.caras:
         cv2.rectangle(out, (x, y), (x + cw, y + ch), vis.BGR_ROJO, 2)
+    if res.movimiento is not None:  # lo que se movió según la sustracción de fondo (MOG2), con un contorno tenue
+        cs, _ = cv2.findContours(res.movimiento, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(out, cs, -1, (180, 182, 196), 1, cv2.LINE_AA)
     lineas = [f"Blanco: mano · naranja: brazo · línea roja: corte por la muñeca ({juego.config.metodo_corte}) · "
-              f"recuadros: {len(res.caras)} cara(s) de Viola-Jones"]
+              f"recuadros: {len(res.caras)} cara(s) de Viola-Jones · contorno gris: movimiento (MOG2)"]
+    mov = [f"{pl.NOMBRES_LADO[l]} {r.movimiento * 100:.0f} %" for l, r in res.manos.items() if r.movimiento is not None]
+    if mov:
+        lineas.append("Parte de la mano en movimiento: " + " · ".join(mov) +
+                      " (una mano nueva tiene que moverse para entrar al juego)")
     ws = [pl.NOMBRES_LADO[l] for l, r in res.manos.items() if r.uso_watershed]
     if ws:
         lineas.append("Watershed separó otra región pegada a la mano de " + " y ".join(ws))
@@ -303,9 +310,18 @@ def _caracterizacion(juego, res, img):
         if r.descriptores is None:
             continue
         d, e = r.descriptores, (r.cm_por_px or 0.0)
-        lineas.append(f"{pl.NOMBRES_LADO[lado]}: {r.analisis.n_dedos} dedos → {r.analisis.gesto} · área "
-                      f"{d.area * e ** 2:.0f} cm² · solidez {d.solidez:.2f} · circularidad {d.circularidad:.2f}")
-    lineas.append("Blanco: casco convexo · rojo: valles · verde: puntas · cruz: punto de golpe")
+        v = r.validacion
+        if v is not None and not v.valida:  # la forma no es de una mano: se descarta y se dice por qué
+            cv2.drawContours(out, [r.analisis.contorno], -1, vis.BGR_ROJO, 3, cv2.LINE_AA)
+            _etiqueta_mano(out, r, "no es una mano: " + v.motivos[0], vis.BGR_ROJO)
+            lineas.append(f"{pl.NOMBRES_LADO[lado]}: descartada ({'; '.join(v.motivos)})")
+            continue
+        estado = ("confirmada" if r.presente else "confirmando…") if r.presente is not None else "válida"
+        gesto = r.gesto[0]
+        lineas.append(f"{pl.NOMBRES_LADO[lado]}: mano {estado} (confianza {v.confianza:.2f}) · "
+                      f"{r.dedos_estables if r.dedos_estables is not None else r.analisis.n_dedos} dedos → {gesto} · "
+                      f"área {d.area * e ** 2:.0f} cm² · solidez {d.solidez:.2f}")
+    lineas.append("Blanco: casco convexo · rojo: valles · verde: puntas · contorno rojo: región descartada")
     return out, lineas
 
 

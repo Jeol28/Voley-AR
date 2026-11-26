@@ -398,6 +398,14 @@ El pipeline de las dos manos tarda **≈ 20-25 ms por frame** a 960 px (la casca
 - **Cierre de 5 px.** Con 9 px los dedos juntos se pegaban y el conteo fallaba.
 - **Depth Anything cada N frames, en un hilo.** Tarda unos 110 ms en MPS; el bucle nunca lo espera.
 - **Red frontal.** Vista de lado, la red (plano `x = 0`) se ve de canto: se dibuja como una franja de malla de frente.
+- **¿Hay mano o no?** Una región de piel solo cuenta como mano si pasa tres filtros:
+  1. **Forma (caracterización):** palma de tamaño plausible (35-130 cm), relación área/palma, solidez y piel
+     suficiente. Así se descartan las caras que se escapan de Viola-Jones, que se ven como una "palma" demasiado
+     grande.
+  2. **Movimiento (sustracción de fondo MOG2):** una mano nueva tiene que moverse para entrar al juego, así que un
+     objeto de color piel quieto no cuenta. El HUD avisa "mueve la mano para empezar".
+  3. **Histéresis:** aparece tras 3 frames válidos y desaparece tras 6 inválidos; el gesto se suaviza con la mayoría
+     de los últimos 5 frames.
 
 Más detalle en [`docs/arquitectura.md`](docs/arquitectura.md).
 

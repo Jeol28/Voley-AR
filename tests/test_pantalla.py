@@ -107,3 +107,83 @@ def test_en_espejo_el_jugador_1_sigue_a_la_izquierda_de_la_pantalla():
     img, _ = s.escena_pantalla(jugadores=js)
     r = pl.procesar_frame(img, s.camara_ejemplo(), None, pl.ConfigPipeline(espejo=True))
     assert r.manos[-1].hay_mano and not r.manos[1].hay_mano  # …en espejo queda a la izquierda (jugador 1)
+
+
+# --------------------------------------------------------------------------- #
+# ¿Hay mano o no? Validación por forma, movimiento y seguimiento
+# --------------------------------------------------------------------------- #
+
+
+def _sin_manos():
+    js = s.jugadores_por_defecto()
+    for j in js:
+        j.mano_visible = False
+    return js
+
+
+def test_sin_manos_no_se_inventa_ninguna_aunque_falle_el_detector_de_caras():
+    img, _ = s.escena_pantalla(jugadores=_sin_manos())
+    for excluir in (True, False):  # también si Haar no encontrara ninguna cara
+        r = pl.procesar_frame(img, s.camara_ejemplo(), None, pl.ConfigPipeline(excluir_caras=excluir))
+        for lado, m in r.manos.items():
+            assert not m.hay_mano, (excluir, lado, m.validacion)
+
+
+def test_las_manos_reales_pasan_la_validacion():
+    img, v = s.escena_pantalla()
+    r = pl.procesar_frame(img, s.camara_ejemplo(), None, pl.ConfigPipeline())
+    for m in r.manos.values():
+        assert m.validacion.valida and m.validacion.confianza > 0.5 and m.hay_mano
+
+
+def test_seguidor_aparece_desaparece_y_no_parpadea():
+    from voleyar.core.caracterizacion import SeguidorMano
+
+    sg = SeguidorMano(frames_aparecer=3, frames_desaparecer=6)
+    assert [sg.actualizar(True, 5, 0.3) for _ in range(3)] == [False, False, True]
+    # Un frame malo de vez en cuando no la hace desaparecer
+    for k in range(20):
+        assert sg.actualizar(k % 3 != 0, 5, 0.0)
+    assert sg.dedos_estables == 5
+    assert [sg.actualizar(False) for _ in range(6)][-1] is False
+
+
+def test_el_gesto_se_suaviza():
+    from voleyar.core.caracterizacion import SeguidorMano
+
+    sg = SeguidorMano()
+    for n in (5, 5, 1, 5, 5):  # un frame mal contado
+        sg.actualizar(True, n, 0.3)
+    assert sg.dedos_estables == 5
+
+
+def test_una_mano_quieta_desde_el_inicio_no_se_toma_hasta_que_se_mueve():
+    """Como un póster o un objeto de color piel: si nunca se mueve, no es un jugador."""
+    modelo = s.camara_ejemplo(960, 540)
+    fuente = s.FuentePantalla(modelo, n_jugadores=1)
+    cfg = pl.ConfigPipeline(seguimiento=True)
+    est = pl.EstadoPipeline()
+    vistos = [pl.procesar_frame(fuente.leer()[1], modelo, None, cfg, est, lados=(-1,)).manos[-1].hay_mano
+              for _ in range(40)]
+    assert not any(vistos)
+    for k in range(10):  # ahora la mano se mueve
+        x, y = fuente.jugadores[0].mano
+        fuente.jugadores[0].mano = (x + (2.0 if k % 2 else -2.0), y)
+        m = pl.procesar_frame(fuente.leer()[1], modelo, None, cfg, est, lados=(-1,)).manos[-1]
+    assert m.hay_mano and m.presente
+
+
+def test_la_mano_desaparece_al_bajarla():
+    modelo = s.camara_ejemplo(960, 540)
+    fuente = s.FuentePantalla(modelo, n_jugadores=1)
+    cfg = pl.ConfigPipeline(seguimiento=True)
+    est = pl.EstadoPipeline()
+    rng = np.random.default_rng(0)
+    for _ in range(30):  # la mano se mueve como al jugar
+        fuente.jugadores[0].mano = (rng.uniform(-18, -8), rng.uniform(2, 10))
+        m = pl.procesar_frame(fuente.leer()[1], modelo, None, cfg, est, lados=(-1,)).manos[-1]
+    assert m.hay_mano
+    fuente.jugadores[0].mano_visible = False
+    estados = [pl.procesar_frame(fuente.leer()[1], modelo, None, cfg, est, lados=(-1,)).manos[-1].hay_mano
+               for _ in range(8)]
+    assert estados[-1] is False
