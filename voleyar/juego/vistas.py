@@ -435,7 +435,7 @@ def tarjeta(juego, img: np.ndarray, vista: str, lineas: list[str]) -> np.ndarray
                *[(x, vis.BGR_NEUTRO, False) for x in lineas[:2]],
                *([(pista, (180, 182, 196), False)] if pista else [])]
     for texto, color, titulo in bloques:  # el texto salta de línea en vez de salirse de la imagen
-        for parte in _partir(texto, cabe):
+        for parte in _partir(texto, int(cabe * 0.88) if titulo else cabe):  # la negrita es más ancha
             filas.append(parte)
             estilos.append((color, titulo))
     alto = int((len(filas) + 0.6) * t * 1.45)
