@@ -27,7 +27,10 @@ def medir_rendimiento(frames: int = 40) -> None:
     from voleyar.juego.navegador import crear_juego_navegador, paso_navegador
     from voleyar.utils import sinteticos as s
 
-    for w, h in ((640, 360), (960, 540)):
+    import cv2
+
+    for w, h, hilos in ((640, 360, cv2.getNumThreads()), (640, 360, 4), (640, 360, 2), (640, 360, 1)):
+        cv2.setNumThreads(hilos)
         m = s.camara_ejemplo(w, h)
         f = s.FuentePantalla(m)
         j = crear_juego_navegador(m, "2j")
@@ -42,7 +45,9 @@ def medir_rendimiento(frames: int = 40) -> None:
         for i in range(frames):
             paso_navegador(j, imgs[i % 4])
         ms = (time.perf_counter() - t) / frames * 1000
-        print(f"[rendimiento] servidor ({os.cpu_count()} CPU): {w}x{h} → {ms:.0f} ms por frame del juego", flush=True)
+        print(f"[rendimiento] servidor ({os.cpu_count()} CPU, OpenCV con {hilos} hilos): {w}x{h} → {ms:.0f} ms "
+              "por frame del juego", flush=True)
+    cv2.setNumThreads(int(os.environ.get("VOLEYAR_HILOS_CV", "4")))
 
 
 def lanzar(puerto: int = 7860, abrir: bool = True, compartir: bool = False) -> None:
