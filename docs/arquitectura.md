@@ -85,8 +85,17 @@ partida.actualizar(dt, J1, J2)         mapa de disparidad
 render + HUD                           ◄─ resultado (si edad < 1 s)
 ```
 
-`TrabajadorAsincrono` acepta una tarea solo si está libre, así que nunca se acumula retraso. En el navegador (y en el
-Space) no hay hilos de modelos: cada frame llega por el stream de Gradio y se procesa en el manejador.
+`TrabajadorAsincrono` acepta una tarea solo si está libre, así que nunca se acumula retraso.
+
+En el navegador (y en el Space) la cámara llega como **video por WebRTC** (fastrtc):
+
+- **El video:** `VideoStreamHandler(frame_juego, fps=30, skip_frames=True)` recibe cada frame en BGR y devuelve el
+  frame del juego, que vuelve por el mismo canal. Con `skip_frames` se procesa siempre el frame más reciente.
+- **El juego compartido:** el manejador de video y los botones de la página comparten el `Juego` de cada visitante a
+  través de `ui/sesiones.py`. Es un registro con clave aleatoria por pestaña, con un candado por sesión porque el
+  video y los botones corren en hilos distintos.
+- **Los modelos:** no hay hilos de modelos en la web; la vista de Transformers llama a los modelos como mucho cada
+  2 s.
 
 ## 6. Física y reglas
 
