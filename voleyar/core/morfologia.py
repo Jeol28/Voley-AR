@@ -134,7 +134,7 @@ def rellenar_huecos(m: np.ndarray) -> np.ndarray:
     return cv2.bitwise_or(m, huecos)
 
 
-def limpiar_mascara(m: np.ndarray, tam_apertura: int = 5, tam_cierre: int = 9, forma: str = "elipse",
+def limpiar_mascara(m: np.ndarray, tam_apertura: int = 5, tam_cierre: int = 5, forma: str = "elipse",
                     rellenar: bool = True) -> np.ndarray:
     """Apertura (quita puntos) → cierre (une grietas) → relleno de huecos."""
     out = m
