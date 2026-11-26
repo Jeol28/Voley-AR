@@ -1,4 +1,4 @@
-"""Lanza Voley AR en el navegador (Gradio, local): el juego con su menú y, en /laboratorio, los temas del curso.
+"""Lanza Voley AR en el navegador (Gradio, local).
 
 Uso::
 

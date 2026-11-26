@@ -173,8 +173,9 @@ def recuadro_piel(shape, lado: int, fraccion: float = 0.05) -> tuple[int, int, i
     """Recuadro donde cada jugador pone la palma para calibrar su piel (centro de su mitad)."""
     h, w = shape[:2]
     s = int(fraccion * w)
-    cx = int(w * (0.30 if lado < 0 else 0.70))
-    cy = int(h * 0.55)
+    # Abajo y hacia la red: lejos de la cara, para que los dedos no la toquen al calibrar
+    cx = int(w * (0.36 if lado < 0 else 0.64))
+    cy = int(h * 0.66)
     return (cx - s // 2, cy - s // 2, s, s)
 
 

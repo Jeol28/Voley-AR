@@ -7,7 +7,7 @@ datos, concurrencia y las decisiones que se tomaron a partir de las pruebas.
 
 | Capa | Paquete | Regla |
 |---|---|---|
-| Presentación | `voleyar/ui/juego_web.py` (el juego en la web: inicio, ajustes, calibración, partida), `voleyar/ui/laboratorio.py` (pestañas por tema, en `/laboratorio`), `voleyar/juego/bucle.py` + `menus.py` (ventana con menús), `voleyar/juego/navegador.py`, `app.py`, `jugar.py`, `laboratorio.py` | Maneja eventos, menús, ventanas y widgets. No implementa visión. |
+| Presentación | `voleyar/ui/juego_web.py` (el juego en la web: inicio, ajustes, calibración, partida), `voleyar/juego/bucle.py` + `menus.py` (ventana con menús), `voleyar/juego/vistas.py` (un panel en vivo por tema del curso), `voleyar/juego/navegador.py`, `app.py`, `jugar.py` | Maneja eventos, menús, vistas y widgets. No implementa visión: las vistas solo muestran lo que el pipeline ya calculó. |
 | Dominio del juego | `voleyar/juego` (`fisica`, `ia_rival`, `partida`, `render_ar`) | Reglas y física en unidades de la cancha. `partida.py` no conoce la cámara. |
 | Núcleo de visión | `voleyar/core` | Funciones puras: imagen in → imagen/datos out. Sin Gradio ni `imshow`. |
 | Infraestructura | `voleyar/utils`, `voleyar/entorno.py` | Cámara, JSON, texto con tildes, escenas sintéticas, detección de ZeroGPU. |
@@ -125,3 +125,16 @@ Space) no hay hilos de modelos: cada frame llega por el stream de Gradio y se pr
 | Conteo de dedos, ejemplos de la UI | 12/13 (falla con la mano sobre la cara) |
 | Conteo de dedos, barrido 0-5 dedos a 60-79 cm | 19/24 (4 de los 5 fallos a 79 cm) |
 | Mano tocando la cara | Z = 64 cm (real 60) con watershed |
+
+## 10. Vistas por tema dentro de la partida
+
+`voleyar/juego/vistas.py` define una vista por tema del curso:
+
+- **Contenido:** cada vista recibe el `ResultadoFrame` del frame actual y devuelve una imagen (los pasos intermedios
+  de ese tema) y unas líneas con sus números reales.
+- **Ajuste:** cada vista tiene un `Parametro` (por ejemplo `config.tam_cierre`) que `[`/`]` o −/+ recorren. Como el
+  pipeline lee `config` en cada frame, el cambio se ve en el frame siguiente.
+- **Costo:** las vistas no recalculan la visión, salvo Otsu (256 bins, para dibujar su curva) y Canny en la vista de
+  filtros.
+- **Transformers:** su vista dispara Depth Anything y OWLv2. En escritorio van en hilos; en la web, una llamada cada
+  2 s y solo mientras se mira esa vista.

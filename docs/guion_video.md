@@ -2,108 +2,83 @@
 
 **Voley AR – Proyecto final de Visión Artificial · Jorge Enrique Olaya Liévano**
 
+Todo se muestra desde el juego: los temas del curso se ven en vivo con **¿Qué quieres ver?** (o `V` en la ventana) en
+plena partida.
+
 Preparación antes de grabar:
 - Imprime `tablero.pdf` al 100 % y pégalo en cartón. Ten una regla a mano.
-- Consigue un segundo jugador para la partida de dos (o usa el modo contra la IA).
+- Consigue un segundo jugador (o usa el modo contra la IA).
 - Buena luz blanca y mangas largas oscuras.
 - Deja abiertos en VS Code los archivos que se van a mostrar (lista en cada bloque).
-- Ten el laboratorio corriendo (`python laboratorio.py`) y el juego listo (`python jugar.py`).
+- Ten el juego listo: `python jugar.py` (ventana) y `python app.py` (navegador).
 
 ---
 
 ## 0:00-0:40 · Introducción
 
-**En pantalla:** el menú de inicio del juego (`python jugar.py`), "2 jugadores" y unos segundos de partida.
+**En pantalla:** el menú de inicio, "2 jugadores" y unos segundos de partida.
 
 > "Este es Voley AR: voleibol en realidad aumentada para dos jugadores frente a una sola cámara web. No hay nada
 > impreso ni ningún objeto: la cancha, la red y el balón se dibujan en la pantalla y lo único real son nuestras manos.
-> Cada tema del curso cumple una función en el juego, y la calibración de la cámara es la que une lo real con lo
-> virtual."
+> Y dentro del mismo juego se puede ver, tema por tema, cómo usa la visión artificial."
 
-## 0:40-1:40 · Arquitectura
+## 0:40-1:30 · Arquitectura
 
 **En pantalla:** README → *Arquitectura* (diagrama de capas y del pipeline) y la estructura de carpetas.
 
-> "Lo que ve un jugador es solo el juego: menú, ajustes, calibración y partida. Lo técnico vive aparte, en el
-> laboratorio. El código está en capas. `core` tiene un módulo por tema, todos como funciones puras. `juego` tiene la física, las
-> reglas y el render. La UI de Gradio, la ventana de OpenCV y el juego en el navegador son tres presentaciones del mismo
-> pipeline: `core/pipeline.py`, función `procesar_frame`, que procesa una mano por cada mitad de la imagen."
+> "`core` tiene un módulo por tema, todos como funciones puras. `juego` tiene la física, las reglas, el render, los
+> menús y las vistas por tema. La ventana y la página web son dos presentaciones del mismo pipeline:
+> `core/pipeline.py`, que procesa una mano por cada mitad de la imagen."
 
 - Mostrar `voleyar/core/pipeline.py` → `procesar_frame` y `_procesar_mano`.
-- Mostrar la estrategia de ramas: diagrama `gitGraph` y `git log --graph --oneline` (ramas `feature/` por tema, merges
-  `--no-ff`, tags v1.0.0, v1.1.0 y v2.0.0, y la rama `feature/multijugador`).
+- Mostrar el `gitGraph` y `git log --graph --oneline` (ramas `feature/`, merges `--no-ff`, tags de v1.0.0 a v2.2.0).
 
-## 1:40-3:00 · Calibración en vivo con el tablero
+## 1:30-2:40 · Calibración de la cámara
 
-**En pantalla:** `python scripts/calibrar_camara.py --cuadro 2.5`.
+**En pantalla:** navegador → **Calibrar cámara** (o `python scripts/calibrar_camara.py`).
 
-1. Medir el cuadro con la regla frente a la cámara.
-2. Mover el tablero: el aviso "Tablero detectado", el contador de vistas y la sugerencia. Activar la captura
-   automática con `A`.
-3. Pulsar `C`: mostrar `K`, la distorsión, el **error de reproyección** (< 0.5 px) y la ventana sin distorsión.
+1. Medir el cuadro del tablero con la regla.
+2. Mover el tablero: la barra se llena y aparecen sugerencias de ángulo.
+3. **Calibrar** → "Calibración excelente" y, en *Detalles técnicos*, `K`, la distorsión y el error por vista.
 
 **Código a mostrar:** `voleyar/core/calibracion.py` → docstring (pinhole, intrínsecos/extrínsecos, distorsión),
-`calibrar_camara`, `camara_virtual` y `distancia_por_tamano`.
+`calibrar_camara`, `camara_virtual`, `distancia_por_tamano`.
 
-## 3:00-3:50 · Con calibración vs. sin calibración
+## 2:40-7:30 · Los temas, en vivo, en plena partida
 
-**En pantalla:** laboratorio → **Calibración → Distancia de la mano: con y sin calibración**, con la cámara en vivo y la mano
-abierta.
+**En pantalla:** una partida de dos jugadores. Ir pasando "¿Qué quieres ver?" (o `V`) y en cada tema pulsar **−/+**
+(o `[`/`]`) para mostrar el efecto en vivo.
 
-> "Sin cancha impresa, ¿para qué la calibración? Para tres cosas: corregir la distorsión, construir la cámara virtual
-> con la que se dibuja la cancha y, sobre todo, medir a qué distancia está cada mano: Z = f por el tamaño de la palma
-> dividido por su tamaño en píxeles. Con la K calibrada la mano está a unos 60 cm; con la K aproximada el juego cree
-> que está a más de 75. Por eso un golpe solo vale si la mano está en su plano de juego."
+| Tiempo | Vista | Qué mostrar y decir | Ajuste a probar | Archivo / función |
+|---|---|---|---|---|
+| 2:40 | 1 · Calibración | Rectas curvadas por la lente vs. imagen corregida; f y k1; "Z = 58 cm con calibración (75 sin ella)". | Apagar la calibración: la distancia salta y los golpes empiezan a salir inválidos. | `core/calibracion.py` → `corregir_distorsion`, `distancia_por_tamano` |
+| 3:15 | 2 · Filtros | Zona de las manos antes y después del suavizado, bordes de Canny; el ruido baja. | Cambiar a mediana o bilateral, y a "ninguno" para ver el ruido. | `core/filtros.py` → `suavizar`, `canny`, `convolucion_manual` |
+| 3:45 | 3 · Histogramas | El histograma Cr-Cb de la piel de cada jugador (son distintos) y la retroproyección; contraste con CLAHE. | Subir el clip de CLAHE. | `core/histogramas.py` → `calibrar_piel`, `retroproyeccion` |
+| 4:15 | 4 · Umbralización | La curva de Otsu de cada mitad con su T; la máscara binaria. | Subir el umbral mínimo hasta que la mano se rompa. | `core/umbralizacion.py` → `otsu_manual` |
+| 4:45 | 5 · Morfología | Máscara antes/después: regiones de decenas a pocas. | Cierre de 9 px: los dedos se pegan (y el conteo falla). | `core/morfologia.py` → `limpiar_mascara` |
+| 5:20 | 6 · Segmentación | Mano blanca, brazo naranja, cara roja (Viola-Jones); pasar la mano por delante de la cara y ver el watershed. | Corte por distancia vs. por ancho. | `core/segmentacion.py` → `detectar_caras`, `separar_de_la_cara`, `separar_mano_brazo` |
+| 6:00 | 7 · Caracterización | Casco convexo, valles y puntas; cambiar de mano abierta (remate) a un dedo (toque). | Cambiar k del umbral de los dedos. | `core/caracterizacion.py` → `analizar_mano` |
+| 6:40 | 8 · Transformers | Mapa de profundidad (la mano más clara que la cara) y cajas de OWLv2; latencias (~25 ms el clásico vs. ~500 ms OWLv2). | Jugar unos segundos con OWLv2 para notar la latencia. | `core/transformers_models.py` → `mano_delante_de_la_cara`, `detectar_manos` |
 
-- Mostrar la escena de ejemplo (56/61 cm frente a 77/83 cm, con reales de 60/64) y luego tu mano en vivo.
-- Mencionar la subpestaña **Pose con ArUco (demo de la v1)**: `solvePnP` sigue en el código.
+> "Nada de esto es una demo aparte: es exactamente lo que el juego está calculando en ese frame para decidir si golpeé
+> el balón."
 
-## 3:50-6:30 · Recorrido por los temas (código + UI)
+## 7:30-9:30 · Partida completa
 
-Todo en el **laboratorio** (`python laboratorio.py` o `/laboratorio`):
+**En pantalla:** volver a "Solo el juego" y jugar un par de puntos.
 
-| Tiempo | Pestaña | Qué mostrar | Archivo / función |
-|---|---|---|---|
-| 3:50 | **Filtros** | Ejemplo *Poca luz*: ruido, gaussiano/mediana/bilateral, Sobel y Canny; un núcleo propio con "Diferencia máxima ≈ 1e-6". | `core/filtros.py` → `convolucion_manual` |
-| 4:15 | **Histogramas** | Recuadro sobre la palma del jugador 1, histogramas H-S y Cr-Cb, retroproyección; "¿De quién es esta piel?" → Jugador 1, luego Jugador 2. CLAHE. | `core/histogramas.py` → `calibrar_piel`, `retroproyeccion` |
-| 4:40 | **Umbralización** | Mitad de cada jugador: rangos HSV vs. YCrCb, curva de Otsu con T*, "coinciden", adaptativo y tabla de IoU. | `core/umbralizacion.py` → `otsu_manual` |
-| 5:00 | **Morfología** | Ruido sal y pimienta → apertura (miles de componentes → pocas), cierre, las 5 operaciones. | `core/morfologia.py` → `limpiar_mascara` |
-| 5:20 | **Segmentación** | Ejemplo *Mano delante de la cara*: mitades, cara de Haar, contorno elegido, corte por la muñeca y watershed separando la mano de la cara. | `core/segmentacion.py` → `detectar_caras`, `separar_de_la_cara`, `separar_mano_brazo` |
-| 5:45 | **Caracterización** | Jugador 1 y 2: casco convexo, valles, puntas, descriptores (cm² con Z/f) y gesto → golpe. | `core/caracterizacion.py` → `analizar_mano` |
-| 6:10 | **Pipeline** | Los 9 pasos sobre el mismo frame y la tabla de tiempos. | `core/pipeline.py` |
+1. Un **remate** con la mano abierta, un **toque** con un dedo.
+2. Acercar mucho la mano a la cámara: golpe inválido (punto rojo, "mano fuera del plano").
+3. `ESC` → menú de pausa; terminar la partida → **Revancha**.
+4. 20 s del juego en el Space (navegador).
 
-## 6:30-7:30 · Transformers: clásico vs. OWLv2 y profundidad
-
-**En pantalla:** laboratorio → **Transformers**, con la cámara en vivo y los dos jugadores.
-
-1. Depth Anything: mapa de profundidad y, por jugador, "mano delante del cuerpo: golpe válido".
-2. Comparación por mitad: cajas clásicas (naranja) vs. OWLv2 (verde), latencias (~25 ms vs. ~500 ms), IoU y
-   diferencia en cm.
-
-**Código a mostrar:** `core/transformers_models.py` → `mano_delante_de_la_cara` y `estimar_profundidad` (decorador
-`gpu` de `voleyar/entorno.py` para ZeroGPU).
-
-## 7:30-9:30 · Partida de dos jugadores con el panel de depuración
-
-**En pantalla:** `python jugar.py` → **Ajustes** (puntos, "Ver cómo te detecta") → **2 jugadores**.
-
-1. Calibración de la piel: cada jugador cubre su recuadro naranja y se pulsa `ESPACIO`.
-2. Señalar arriba de cada mitad "midiendo…" → "plano a 60 cm" (la distancia de referencia de cada jugador).
-3. Activar `D`: máscaras (mano blanca, brazo naranja, caras rojas), retroproyección de cada jugador, profundidad,
-   distancias y tiempos.
-4. Jugar un par de puntos: un **remate** con la mano abierta, un **toque** con un dedo. Mostrar un golpe inválido
-   acercando mucho la mano a la cámara (punto rojo).
-5. Pulsar `C`: sin calibración la distancia medida cambia y los golpes empiezan a salir inválidos. Volver a `C`.
-6. `ESC` para mostrar el menú de pausa; terminar la partida y mostrar **Revancha**.
-7. Mostrar 20 s del juego en el Space (menú de inicio → **2 jugadores**).
-
-**Código a mostrar (breve):** `juego/partida.py` → `_intentar_golpe` y `juego/bucle.py` → `_validar`.
+**Código a mostrar (breve):** `juego/partida.py` → `_intentar_golpe`, `juego/bucle.py` → `_validar` y
+`juego/vistas.py` → `PARAMETROS`.
 
 ## 9:30-10:00 · Cierre
 
 **En pantalla:** README → *Limitaciones* y `pytest` en verde.
 
-> "Las pruebas usan escenas sintéticas de verdad conocida: dos personas a distancias conocidas, caras detectables y
-> cámaras con distorsión. La calibración recupera K, la distancia de la mano sale con ±4 % de error calibrada y con
-> ~30 % sin calibrar. Las limitaciones principales son la luz, la ropa de color piel y que Haar detecta peor las caras
-> de piel oscura. Gracias."
+> "Las pruebas usan escenas sintéticas de verdad conocida: la calibración recupera K, la distancia de la mano sale
+> con ±4 % de error calibrada y ~30 % sin calibrar, y cada vista del juego se prueba con su ajuste. Las limitaciones
+> principales son la luz, la ropa de color piel y que la cascada Haar detecta peor las caras de piel oscura. Gracias."

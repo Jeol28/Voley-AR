@@ -87,7 +87,7 @@ h2, h3 {{ color: {NEUTRO}; }}
 
 CSS += f"""
 /* --- Interfaz de juego --- */
-.nav-holder {{ display: none !important; }}  /* sin barra de navegación: el laboratorio se abre por enlace */
+.nav-holder {{ display: none !important; }}  /* el juego es una sola página */
 .pantalla {{ max-width: 900px; margin: 0 auto !important; }}
 .pantalla-juego {{ max-width: 1400px; margin: 0 auto !important; }}
 .hero {{ text-align: center; padding: 56px 0 18px 0; }}
