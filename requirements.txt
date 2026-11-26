@@ -1,0 +1,19 @@
+# Visión por computador
+opencv-contrib-python>=4.8   # incluye cv2.aruco (ArucoDetector)
+numpy>=1.24
+scikit-image>=0.21
+matplotlib>=3.7
+
+# Transformers (solo inferencia con pesos públicos de Hugging Face)
+torch>=2.1                   # usa MPS en Apple Silicon si está disponible
+transformers>=4.45
+
+# Interfaz
+gradio>=4.44
+
+# Imprimibles (PDF con medidas reales)
+reportlab>=4.0
+pillow>=10.0
+
+# Pruebas
+pytest>=7.4
