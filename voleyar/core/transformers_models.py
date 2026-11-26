@@ -317,3 +317,40 @@ def precargar_modelos() -> None:
     """Descarga y carga ambos modelos al arrancar (recomendado en ZeroGPU: carga global, no dentro de la GPU)."""
     obtener_profundidad()
     obtener_owl()
+
+
+@dataclass
+class ManoDelante:
+    delante: bool
+    puntaje: float
+    med_mano: float
+    med_cara: float
+
+
+def mano_delante_de_la_cara(mapa: np.ndarray, mascara_mano: np.ndarray, caja_cara: tuple[int, int, int, int],
+                            margen: float = -0.05) -> ManoDelante | None:
+    r"""Modo pantalla: ¿la mano está delante del cuerpo de su jugador (más cerca de la cámara)?
+
+    Con la disparidad relativa :math:`D` (más alto = más cerca), se compara la mano con
+    la cara del mismo jugador y se normaliza por la variación de la mitad de la imagen:
+
+    .. math::  s = \frac{\operatorname{med}(D_{mano}) - \operatorname{med}(D_{cara})}{P_{95} - P_5}
+
+    Una mano levantada para jugar está delante de la cara (:math:`s > 0`); si queda
+    detrás (por ejemplo, la mano de alguien que pasa por el fondo) el golpe no vale.
+    """
+    if mascara_mano is None or not mascara_mano.any():
+        return None
+    x, y, w, h = caja_cara
+    H, W = mapa.shape[:2]
+    x0, y0, x1, y1 = max(0, x + w // 4), max(0, y + h // 4), min(W, x + 3 * w // 4), min(H, y + 3 * h // 4)
+    if x1 <= x0 or y1 <= y0:
+        return None
+    nucleo = cv2.erode(mascara_mano, np.ones((7, 7), np.uint8))
+    d_mano = mapa[nucleo > 0] if nucleo.any() else mapa[mascara_mano > 0]
+    d_cara = mapa[y0:y1, x0:x1].ravel()
+    mitad = mapa[:, : W // 2] if x + w / 2 < W / 2 else mapa[:, W // 2:]
+    rango = max(float(np.percentile(mitad, 95) - np.percentile(mitad, 5)), 1e-6)
+    med_m, med_c = float(np.median(d_mano)), float(np.median(d_cara))
+    s = (med_m - med_c) / rango
+    return ManoDelante(s > margen, float(s), med_m, med_c)
