@@ -211,8 +211,8 @@ def test_juego_sin_ventana_con_fuente_sintetica(modo):
     if modo == "2j":
         assert j.eventos_totales.count("golpe_rival") >= 2  # el jugador 2 también devuelve
         assert all(x.z_ref is not None for x in j.jugadores.values())
-    j.depurar = True
-    assert j.paso().shape[1] > 960  # panel de depuración a la derecha
+    j.vista = "segmentacion"
+    assert j.paso().shape[1] > 960  # el panel del tema aparece a la derecha
 
 
 def test_juego_en_el_navegador_con_frames_externos():
@@ -266,3 +266,37 @@ def test_menus_del_juego_de_escritorio():
     j._mouse(cv2.EVENT_LBUTTONUP, x + w // 2, y + h // 2, 0, None)
     assert j.partida.marcador == {"jugador": 0, "rival": 0} and j.fase == "jugando"
     assert j.tecla(27) is True and j.pausado  # ESC durante la partida pausa, no cierra el juego
+
+
+def test_vistas_por_tema_en_la_ventana():
+    from voleyar.juego.bucle import Juego, OpcionesJuego
+    from voleyar.juego.vistas import VISTAS
+
+    j = Juego(OpcionesJuego(modo="2j", sintetico=True, profundidad=False, headless=True, ancho=960, alto=540))
+    for _ in range(25):
+        j.paso()
+    vistas = []
+    for _ in VISTAS[1:-1]:  # sin transformers (carga modelos; se prueba en las pruebas lentas)
+        j.tecla(ord("v"))
+        vistas.append(j.vista)
+        assert j.paso().shape[1] > 960
+    assert vistas == list(VISTAS[1:-1])
+    j.vista = "morfologia"
+    cierre = j.config.tam_cierre
+    j.tecla(ord("]"))
+    assert j.config.tam_cierre != cierre
+    j.tecla(ord("b"))
+    assert j.vista == "umbralizacion"
+
+
+@pytest.mark.lento
+def test_vista_de_transformers_con_los_modelos():
+    from voleyar.juego.bucle import Juego, OpcionesJuego
+
+    j = Juego(OpcionesJuego(modo="2j", sintetico=True, profundidad=False, headless=True, ancho=960, alto=540,
+                            interfaz="web"))
+    for _ in range(25):
+        j.paso()
+    j.vista = "transformers"
+    img = j.paso()
+    assert j.ultimo_prof is not None and j.ultimo_owl is not None and img.shape[1] > 960
