@@ -212,7 +212,7 @@ def test_juego_sin_ventana_con_fuente_sintetica(modo):
         assert j.eventos_totales.count("golpe_rival") >= 2  # el jugador 2 también devuelve
         assert all(x.z_ref is not None for x in j.jugadores.values())
     j.vista = "segmentacion"
-    assert j.paso().shape[1] > 960  # el panel del tema aparece a la derecha
+    assert j.paso().shape[:2] == (540, 960)  # el lente del tema no cambia el tamaño del juego
 
 
 def test_juego_en_el_navegador_con_frames_externos():
@@ -279,7 +279,7 @@ def test_vistas_por_tema_en_la_ventana():
     for _ in VISTAS[1:-1]:  # sin transformers (carga modelos; se prueba en las pruebas lentas)
         j.tecla(ord("v"))
         vistas.append(j.vista)
-        assert j.paso().shape[1] > 960
+        assert j.paso().shape[:2] == (540, 960)  # el tema se ve dentro del juego
     assert vistas == list(VISTAS[1:-1])
     j.vista = "morfologia"
     cierre = j.config.tam_cierre
@@ -299,4 +299,4 @@ def test_vista_de_transformers_con_los_modelos():
         j.paso()
     j.vista = "transformers"
     img = j.paso()
-    assert j.ultimo_prof is not None and j.ultimo_owl is not None and img.shape[1] > 960
+    assert j.ultimo_prof is not None and j.ultimo_owl is not None and img.shape[:2] == (540, 960)

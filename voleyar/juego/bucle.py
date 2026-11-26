@@ -312,12 +312,17 @@ class Juego:
                                 lados=self.lados)
         self.ultimo_res = res
         img = res.imagen.copy()
+        lineas_tema: list[str] = []
+        if self.vista != "juego":  # el mundo del juego visto a través del tema elegido
+            from voleyar.juego.vistas import lente
+
+            img, lineas_tema = lente(self, res, img, self.vista)
         if self.fase == "calibrar_piel":
             img = self._paso_calibrar_piel(frame, res, img, ahora)
-            if self.vista != "juego":  # también se puede mirar cada tema mientras se calibra la piel
-                from voleyar.juego.vistas import componer
+            if self.vista != "juego":
+                from voleyar.juego.vistas import tarjeta
 
-                img = componer(self, res, img, self.vista)
+                img = tarjeta(self, img, self.vista, lineas_tema)
             return img
 
         # --- profundidad (hilo aparte, cada N frames) -----------------------------
@@ -352,19 +357,17 @@ class Juego:
         img = ra.dibujar_escena_pantalla(img, res.pose, res.modelo, self.partida.balon.pos, ia_xy,
                                          self.partida.ia.altura_golpe, self.partida.marcas, self.partida.t,
                                          giro=int(self.partida.t * 8))
-        if self.vista in ("segmentacion", "caracterizacion"):
-            img = pl.dibujar_depuracion(res, img)
         mensaje = "" if self.partida.estado == "fin" else self.partida.mensaje
         m = self.partida.marcador
         n = self.partida.nombres
         ra.dibujar_hud(img, (m[JUGADOR], m[RIVAL]), mensaje, self._modo_texto(), self.fps, "", None, None,
                        "OWLv2" if self.usar_owl else "clásico", (n[JUGADOR], n[RIVAL]))
         self._estado_jugadores(img, res)
-        img = self._dibujar_menu(img)
         if self.vista != "juego":
-            from voleyar.juego.vistas import componer
+            from voleyar.juego.vistas import tarjeta
 
-            img = componer(self, res, img, self.vista)
+            img = tarjeta(self, img, self.vista, lineas_tema)
+        img = self._dibujar_menu(img)
         return img
 
     def _modelos(self, res: pl.ResultadoFrame, ahora: float):
