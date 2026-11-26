@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import gradio as gr
 
+from voleyar.entorno import EN_SPACE
+from voleyar.ui.comunes import nueva_sesion_componente
 from voleyar.ui.estado import ESTADO
 from voleyar.ui.pestanas import (calibracion, caracterizacion, filtros, histogramas, jugar, morfologia, pipeline,
                                  segmentacion, transformers, umbralizacion)
@@ -26,8 +28,13 @@ PESTANAS = [
 def crear_app() -> gr.Blocks:
     with gr.Blocks(title="Voley AR · Laboratorio de Visión Artificial") as demo:
         gr.Markdown("# Voley AR")
-        estado_cam = ("cámara calibrada (config/camara.json)" if ESTADO.modelo_camara is not None
-                      else "cámara **sin calibrar**: empieza por la pestaña Calibración")
+        nueva_sesion_componente()
+        if EN_SPACE:
+            estado_cam = ("versión en línea: imprime la cancha, calibra tu cámara en la pestaña Calibración y "
+                          "juega en la pestaña Jugar")
+        else:
+            estado_cam = ("cámara calibrada (config/camara.json)" if ESTADO.modelo_camara is not None
+                          else "cámara **sin calibrar**: empieza por la pestaña Calibración")
         gr.Markdown("Voleibol en realidad aumentada sobre la mesa. Proyecto final de Visión Artificial · "
                     f"Jorge Enrique Olaya Liévano · {estado_cam}.")
         with gr.Tabs():
@@ -39,6 +46,14 @@ def crear_app() -> gr.Blocks:
 
 def lanzar(puerto: int = 7860, abrir: bool = True, compartir: bool = False) -> None:
     demo = crear_app()
+    if EN_SPACE:
+        # ZeroGPU: los modelos se cargan una vez al arrancar (fuera de @spaces.GPU)
+        from voleyar.core.transformers_models import precargar_modelos
+
+        precargar_modelos()
+        demo.queue(default_concurrency_limit=4)
+        demo.launch(theme=crear_tema(), css=CSS, footer_links=[])  # host y puerto los pone el Space
+        return
     demo.queue(default_concurrency_limit=2)
     demo.launch(server_name="127.0.0.1", server_port=puerto, inbrowser=abrir, share=compartir, theme=crear_tema(),
                 css=CSS, footer_links=[])
