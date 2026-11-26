@@ -143,7 +143,8 @@ En el navegador (y en el Space) la cámara llega como **video por WebRTC** (fast
   escena vista a través del tema (máscara, bordes, retroproyección, profundidad…), del mismo tamaño, y unas líneas
   con sus números reales.
 - **Orden de dibujo:** el bucle aplica el lente **antes** de dibujar la cancha, la red y el balón, así que el juego
-  sigue encima. Al final se agrega una tarjeta translúcida tipo HUD con los datos.
+  sigue encima. Los datos y las gráficas del tema (`vistas.panel`) van fuera de la cancha: una franja debajo del
+  video en la ventana y la columna izquierda en la web (`juego_web.datos_tema`, cada segundo). Nada tapa el balón.
 - **Ajuste:** cada tema tiene un `Parametro` (por ejemplo `config.tam_cierre`) que `[`/`]` o −/+ recorren. Como el
   pipeline lee `config` en cada frame, el cambio se ve en el frame siguiente.
 - **Transformers:** su lente dispara Depth Anything y OWLv2. En escritorio van en hilos; en la web, una llamada cada

@@ -128,6 +128,10 @@ def test_cada_tema_se_ve_en_la_partida_y_su_ajuste_cambia(vista):
     texto2, _, _ = jw.cambiar(1)(clave, vista)
     assert p.leer(juego) != antes and "cambia" in texto2
     jugar(1)  # el pipeline sigue funcionando con el ajuste nuevo
+    texto, graficas = jw.datos_tema(clave)  # los datos y gráficas van a la columna, fuera de la cancha
+    assert texto["visible"] and texto["value"]
+    if vista == "histogramas":  # (la de umbralización aparece tras aprender el fondo)
+        assert graficas["visible"] and graficas["value"].shape[0] == 160
 
 
 def test_sin_ajuste_disponible_los_botones_se_apagan_y_explican_por_que():
@@ -135,6 +139,7 @@ def test_sin_ajuste_disponible_los_botones_se_apagan_y_explican_por_que():
     jugar(2)
     texto, menos, mas = jw.elegir_vista(clave, "juego")  # la vista normal no tiene ajuste
     assert not menos["interactive"] and not mas["interactive"] and "Qué quieres ver" in texto
+    assert not any(x["visible"] for x in jw.datos_tema(clave))  # ni panel de datos
     juego.modelo_camara = None  # cámara sin calibrar: no hay calibración que encender o apagar
     texto, menos, mas = jw.elegir_vista(clave, "calibracion")
     assert not menos["interactive"] and "calibra la cámara" in texto

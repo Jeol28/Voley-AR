@@ -313,6 +313,24 @@ def cambiar(paso: int):
     return manejador
 
 
+def datos_tema(clave: str):
+    """Datos en vivo y gráficas del tema que se está viendo, en la columna de la izquierda (fuera de la cancha)."""
+    s = sesiones.obtener(clave)
+    with s.cerrojo:
+        j = s.juego
+        if j is None or j.vista == "juego":
+            return gr.update(value="", visible=False), gr.update(value=None, visible=False)
+        texto = "  \n".join(j.lineas_tema[:2])
+        graficas = list(getattr(j, "graficas_tema", []))
+    img = None
+    if graficas:  # una al lado de la otra, misma altura
+        alto = 160
+        partes = [cv2.resize(g, (max(1, int(g.shape[1] * alto / g.shape[0])), alto)) for g in graficas]
+        img = vis.bgr_a_rgb(np.hstack(partes))
+    return (gr.update(value=texto, visible=bool(texto)),
+            gr.update(value=img, visible=img is not None))
+
+
 def guardar_ajustes(clave: str, dificultad: str, puntos: int, usar_cal: bool, espejo: bool = True) -> None:
     s = sesiones.obtener(clave)
     s.ajustes = {"dificultad": dificultad, "puntos": int(puntos), "usar_calibracion": bool(usar_cal),
@@ -474,6 +492,10 @@ def construir(demo: gr.Blocks) -> None:
                     b_menos = gr.Button("−", min_width=60, interactive=False)
                     b_mas = gr.Button("+", min_width=60, interactive=False)
                 param = gr.Markdown(_texto_param(None, "juego"), elem_classes="nota")
+                datos = gr.Markdown(visible=False, elem_classes="nota")
+                graficas = gr.Image(show_label=False, interactive=False, visible=False, container=False,
+                                    show_download_button=False, show_fullscreen_button=False)
+                reloj_tema = gr.Timer(1.0)
             with gr.Column(scale=9):
                 video = WebRTC(label="Voley AR", mode="send-receive", modality="video", mirror_webcam=False,
                                track_constraints=VIDEO_JUEGO, rtc_configuration=configuracion_rtc(),
@@ -501,6 +523,7 @@ def construir(demo: gr.Blocks) -> None:
     vista.change(elegir_vista, [clave, vista], [param, b_menos, b_mas])
     b_menos.click(cambiar(-1), [clave, vista], [param, b_menos, b_mas])
     b_mas.click(cambiar(1), [clave, vista], [param, b_menos, b_mas])
+    reloj_tema.tick(datos_tema, clave, [datos, graficas], show_progress="hidden")
 
     video_cal.stream(VideoStreamHandler(frame_calibracion, fps=15, skip_frames=True), inputs=[video_cal, clave],
                      outputs=[video_cal], concurrency_limit=CONCURRENCIA_VIDEO, send_input_on="submit")

@@ -159,8 +159,10 @@ dos jugadores, `I`/`J`/`K`/`L` mueve la mano del jugador 2 y `N` cambia sus dedo
 ## Cada tema del curso, dentro del juego
 
 Cada tema del curso **decide algo de la partida**, y su lente lo muestra mientras se juega. En la partida, **¿Qué
-quieres ver?** (o `V` / `B` en la ventana) pone ese tema sobre la escena, con la cancha, la red y el balón encima y
-una tarjeta abajo con sus números reales. Con **− / +** (o `[` / `]`) se cambia su ajuste y se nota en el juego.
+quieres ver?** (o `V` / `B` en la ventana) pone ese tema sobre la imagen de la cámara, con la cancha, la red y el balón
+siempre encima. Sus números y gráficas van **fuera de la cancha**: en la columna izquierda de la web (se actualizan cada
+segundo) o en una franja debajo del video en la ventana, así nunca tapan el balón. Con **− / +** (o `[` / `]`) se
+cambia su ajuste y se nota en el juego.
 
 | Tema | Qué decide en la partida | Si lo cambias o lo quitas | Ajuste con − / + |
 |---|---|---|---|

@@ -136,6 +136,8 @@ class Juego:
         self.owl = None
         self._t_prev = time.perf_counter()
         self.eventos_totales: list[str] = []
+        self.lineas_tema: list[str] = []  # datos del tema que se está viendo (para el panel)
+        self.graficas_tema: list = []
         # Lo que cada tema cambió en la partida (se muestra en su lente)
         self.stats = {"remates": 0, "lejos": 0, "cara": 0, "tipos": {}}
 
@@ -382,10 +384,14 @@ class Juego:
         ra.dibujar_hud(img, (m[JUGADOR], m[RIVAL]), mensaje, self._modo_texto(), self.fps, "", None, None,
                        "OWLv2" if self.usar_owl else "clásico", (n[JUGADOR], n[RIVAL]))
         self._estado_jugadores(img, res)
-        if self.vista != "juego":
-            from voleyar.juego.vistas import tarjeta
+        self.lineas_tema = lineas_tema
+        if self.vista != "juego" and self.op.interfaz != "web":
+            # En la ventana, los datos del tema van en una franja DEBAJO del video, no encima de la cancha
+            from voleyar.juego.vistas import panel
 
-            img = tarjeta(self, img, self.vista, lineas_tema)
+            franja = panel(self, self.vista, lineas_tema, img.shape[1], int(img.shape[0] * 0.3))
+            if franja is not None:
+                img = np.vstack([img, franja])
         img = self._dibujar_menu(img)
         return img
 

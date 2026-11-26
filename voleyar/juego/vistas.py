@@ -3,9 +3,10 @@
 Elegir un tema cambia cómo se ve el mundo del juego, sin salir de él ni abrir
 otro panel: la imagen de la cámara se reemplaza por lo que ese tema está
 calculando en este mismo frame (la máscara de piel, los bordes, el mapa de
-profundidad…). Encima se siguen dibujando la cancha, la red y el balón, y abajo
-aparece una tarjeta translúcida con los números del tema y su ajuste, que se
-cambia mientras se juega (teclas ``[`` y ``]`` o los botones −/+ de la web).
+profundidad…). Encima se siguen dibujando la cancha, la red y el balón. Los números
+y las gráficas del tema van en un panel FUERA de la cancha (una franja debajo del
+video en la ventana, la columna izquierda en la web), para no tapar nunca el balón.
+El ajuste se cambia mientras se juega (``[`` y ``]`` o los botones −/+ de la web).
 
 Todo sale del ``ResultadoFrame`` que ya calculó el pipeline: los lentes no
 recalculan la visión, solo la muestran.
@@ -129,18 +130,6 @@ def _oscurecer(img: np.ndarray, cuanto: float = 0.55) -> np.ndarray:
     return (img.astype(np.float32) * (1 - cuanto)).astype(np.uint8)
 
 
-def _insertar(img: np.ndarray, mini: np.ndarray, x: int, y: int, titulo: str = "") -> None:
-    """Pequeña imagen enmarcada dentro de la escena (por ejemplo, el histograma de cada jugador)."""
-    mini = vis.a_bgr(mini)
-    h, w = mini.shape[:2]
-    H, W = img.shape[:2]
-    x, y = max(0, min(W - w, x)), max(0, min(H - h, y))
-    img[y:y + h, x:x + w] = mini
-    cv2.rectangle(img, (x - 1, y - 1), (x + w, y + h), vis.BGR_NARANJA, 1)
-    if titulo:
-        vis.poner_texto(img, titulo, (x + 4, y + 2), max(11, h // 9), vis.BGR_NEUTRO, fondo=vis.BGR_GRAFITO)
-
-
 def _grafica(curvas: list[tuple[np.ndarray, tuple]], marcas: list[tuple[int, tuple]], ancho: int, alto: int,
              titulo: str = "") -> np.ndarray:
     """Gráfica simple con OpenCV (rápida, para dibujar en cada frame)."""
@@ -173,6 +162,15 @@ def _etiqueta_mano(img, r, texto: str, color=vis.BGR_NEUTRO) -> None:
 # --------------------------------------------------------------------------- #
 # Un lente por tema: devuelve (escena vista a través del tema, líneas de datos)
 # --------------------------------------------------------------------------- #
+
+
+def _al_panel(juego, grafica: np.ndarray, titulo: str = "") -> None:
+    """Las gráficas van al panel de datos, fuera de la cancha: nunca tapan el balón."""
+    if titulo:
+        grafica = grafica.copy()
+        vis.poner_texto(grafica, titulo, (4, 2), max(11, grafica.shape[0] // 9), vis.BGR_NEUTRO,
+                        fondo=vis.BGR_GRAFITO)
+    juego.graficas_tema.append(grafica)
 
 
 def _grande(m, img):
@@ -259,7 +257,7 @@ def _histogramas(juego, res, img):
     if m is not None and m.hist_luz is not None:
         g = _grafica([(m.hist_ref, (180, 180, 180)), (m.hist_luz, vis.BGR_NARANJA)], [], w // 3, h // 4,
                      "luz: referencia (gris) y ahora (naranja)")
-        _insertar(out, g, w // 2 - w // 6, int(h * 0.2))
+        _al_panel(juego, g)
         cambio = " ¡cambio de luz!" if m.cambio_luz else ""
         lineas.append(f"Bhattacharyya entre histogramas: {m.distancia_luz:.2f} (desde {juego.config.umbral_luz:.2f} es "
                       f"la luz y se reaprende el cuarto) · cambios de luz: {juego.estado_pipe.movimiento.cambios_luz}"
@@ -273,14 +271,14 @@ def _histogramas(juego, res, img):
             continue
         mapa = cv2.applyColorMap(vis.normalizar_u8(np.log1p(piel.hist_crcb)), cv2.COLORMAP_INFERNO)
         mapa = cv2.resize(mapa, (lado_mini, lado_mini), interpolation=cv2.INTER_NEAREST)
-        _insertar(out, mapa, 10 if lado < 0 else w - lado_mini - 10, int(h * 0.2), "piel Cr-Cb")
+        _al_panel(juego, mapa, f"piel Cr-Cb {pl.NOMBRES_LADO[lado]}")
         piel_txt.append(f"{pl.NOMBRES_LADO[lado]}: piel aprendida sola ({juego.jugadores[lado].n_aprendizajes} veces)")
     lineas.append(" · ".join(piel_txt) + " · la retroproyección de ese histograma busca la mano")
     return out, lineas
 
 
 def _umbralizacion(juego, res, img):
-    out = _oscurecer(img, 0.7)
+    out = _oscurecer(img, 0.45)
     h, w = out.shape[:2]
     m = res.mov
     lineas = []
@@ -292,7 +290,7 @@ def _umbralizacion(juego, res, img):
         hist[:3] = 0
         g = _grafica([(np.log1p(hist), (180, 180, 180)), (m.curva_otsu, vis.BGR_NARANJA)],
                      [(m.T_otsu, vis.BGR_NARANJA), (m.T, vis.BGR_VERDE)], w // 3, h // 4, f"|frame − fondo|, T = {m.T}")
-        _insertar(out, g, w // 2 - w // 6, int(h * 0.2))
+        _al_panel(juego, g)
         lineas.append(f"Otsu sobre |frame − fondo| elige T = {m.T_otsu} → se usa {m.T} (mínimo "
                       f"{juego.config.mov_t_min}) · blanco: lo que lo supera, se está moviendo")
     else:
@@ -303,7 +301,7 @@ def _umbralizacion(juego, res, img):
 
 
 def _morfologia(juego, res, img):
-    out = _oscurecer(img, 0.6)
+    out = _oscurecer(img, 0.45)
     m = res.mov
     if m is None or m.cruda is None:
         return out, ["Aprendiendo el fondo…"]
@@ -413,41 +411,49 @@ LENTES = {"calibracion": _calibracion, "filtros": _filtros, "histogramas": _hist
 
 def lente(juego, res: pl.ResultadoFrame, img: np.ndarray, vista: str) -> tuple[np.ndarray, list[str]]:
     """La escena (antes de dibujar la cancha y el balón) vista a través del tema elegido."""
+    juego.graficas_tema = []
     if vista not in LENTES:
         return img, []
     return LENTES[vista](juego, res, img)
 
 
-def tarjeta(juego, img: np.ndarray, vista: str, lineas: list[str]) -> np.ndarray:
-    """Tarjeta translúcida abajo, como un HUD: el tema, sus datos y cómo cambiar su ajuste."""
+def panel(juego, vista: str, lineas: list[str], ancho: int, alto: int) -> np.ndarray | None:
+    """Panel de datos del tema, **fuera** de la cancha (debajo del video o en la columna de la web).
+
+    En la escena solo queda la capa del tema sobre la imagen de la cámara; el balón,
+    la red y el marcador se dibujan encima, así que nada tapa el juego.
+    """
     if vista not in LENTES:
-        return img
-    H, W = img.shape[:2]
-    t = max(11, H // 44)
+        return None
+    out = np.full((alto, ancho, 3), vis.BGR_GRAFITO, np.uint8)
+    t = max(12, min(22, ancho // 46))
     parametro = texto_parametro(juego, vista)
     if parametro and not parametro_disponible(juego, vista):
         pista = "Sin calibración de la cámara: calíbrala desde el inicio para compararla"
     else:
         pista = (("[ ]" if juego.op.interfaz != "web" else "− / +") + f" cambia {parametro}") if parametro else ""
-    cabe = max(30, int((W - 40) / (t * 0.52)))  # caracteres por línea (aprox.) a este tamaño de letra
-    filas, estilos = [], []
+    cabe = max(24, int((ancho - 24) / (t * 0.52)))
     bloques = [(f"{VISTAS.index(vista)} · {TITULOS[vista]} — {QUE_HACE[vista]}", vis.BGR_NARANJA, True),
                *[(x, vis.BGR_NEUTRO, False) for x in lineas[:2]],
                *([(pista, (180, 182, 196), False)] if pista else [])]
-    for texto, color, titulo in bloques:  # el texto salta de línea en vez de salirse de la imagen
+    y = int(t * 0.5)
+    for texto, color, titulo in bloques:
         for parte in _partir(texto, int(cabe * 0.88) if titulo else cabe):  # la negrita es más ancha
-            filas.append(parte)
-            estilos.append((color, titulo))
-    alto = int((len(filas) + 0.6) * t * 1.45)
-    y0 = H - alto - int(t * 2.6)  # deja libre la línea de estado de abajo
-    capa = img.copy()
-    cv2.rectangle(capa, (8, y0), (W - 8, y0 + alto), vis.BGR_GRAFITO, -1)
-    out = cv2.addWeighted(capa, 0.72, img, 0.28, 0)
-    cv2.rectangle(out, (8, y0), (W - 8, y0 + alto), vis.BGR_NARANJA, 1)
-    y = y0 + int(t * 0.4)
-    for fila, (color, titulo) in zip(filas, estilos):
-        vis.poner_texto(out, fila, (18, y), t + 1 if titulo else t, color, negrita=titulo)
-        y += int(t * 1.45)
+            if y + t > alto:
+                break
+            vis.poner_texto(out, parte, (12, y), t + 1 if titulo else t, color, negrita=titulo)
+            y += int(t * 1.4)
+    graficas = getattr(juego, "graficas_tema", [])
+    libre = alto - y - 8
+    if graficas and libre > 40:  # las gráficas, en fila, en lo que queda del panel
+        ancho_g = (ancho - 12 * (len(graficas) + 1)) // len(graficas)
+        x = 12
+        for g in graficas:
+            e = min(libre / g.shape[0], ancho_g / g.shape[1])
+            g2 = cv2.resize(g, (max(1, int(g.shape[1] * e)), max(1, int(g.shape[0] * e))), interpolation=cv2.INTER_AREA)
+            out[y:y + g2.shape[0], x:x + g2.shape[1]] = g2
+            cv2.rectangle(out, (x - 1, y - 1), (x + g2.shape[1], y + g2.shape[0]), vis.BGR_NARANJA, 1)
+            x += g2.shape[1] + 12
     return out
 
 
