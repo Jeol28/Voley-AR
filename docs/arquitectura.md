@@ -149,11 +149,28 @@ En el navegador (y en el Space) la cámara llega como **video por WebRTC** (fast
 - **Transformers:** su lente dispara Depth Anything y OWLv2. En escritorio van en hilos; en la web, una llamada cada
   2 s y solo mientras se mira ese tema.
 
-## 11. Golpe por sustracción de fondo
+## 11. Golpe con cualquier objeto: los temas en cadena
 
-`segmentacion.contacto_en_movimiento` cuenta el primer plano de MOG2 dentro del disco del balón proyectado
-(radio × 1.35). Desde el 12 % hay toque, sin importar qué objeto sea; `Juego._contacto` lo calcula en la mitad del
-jugador donde se ve el balón y estima la velocidad del objeto por el desplazamiento del centroide entre frames.
-`Partida._toca_balon` acepta ese toque además del de la mano (rayo de la cámara contra el balón). Salvaguardas: lo
-quieto se absorbe en el fondo y si más del 50 % de la imagen cambia (exposición, luz) no hay toque. La lente de
-Segmentación muestra el porcentaje de movimiento sobre el balón de cada jugador.
+`voleyar/core/movimiento.py` (`AnalizadorMovimiento.aplicar`, ~1.3 ms por frame a 320 px):
+
+```
+frame → suavizado (filtros) → histograma de gris vs. referencia (Bhattacharyya > 0.30: cambio de luz → se reinicia MOG2)
+      → MOG2 (α = 1/900 tras 15 frames de calentamiento: lo quieto ≈ 3 s después es entorno)
+      → |frame − fondo|, umbral T = max(Otsu, 18), y además primer plano de MOG2
+      → apertura 3 px + cierre 5 px → componentes conexas (área ≥ 0.15 %)
+      → se descartan las que caen > 50 % en un recuadro de cara agrandado (Viola-Jones)
+```
+
+`toque_en_balon` busca qué objeto cubre el disco del balón proyectado (radio × 1.35); desde el 12 % hay toque.
+`Juego._contacto` añade:
+
+- **Transformers:** `cercania` compara la mediana de la disparidad de Depth Anything dentro del objeto con la de la
+  escena (normalizada por el rango p5-p95). Por debajo de `cercania_min` (0.10) el toque no cuenta.
+- **Calibración:** la velocidad `vz` de la mano hacia la cámara es la pendiente de `Z = f·W/w` en los últimos
+  0.3 s. Con `vz ≤ −60 cm/s` el golpe es un remate.
+- **Caracterización:** `tipo_de_golpe` usa los dedos estables si la mano reconocida es la que toca (sus cajas se
+  cruzan). Si no hay mano, usa el área relativa al balón y la solidez del objeto.
+
+`Partida.velocidad_golpe` usa `PERFILES_GOLPE` (profundidad del bote y altura máxima) para remate, fuerte, suave y
+bloqueo; el golpe normal sigue dependiendo de la fuerza y de la velocidad de lo que golpea. `Juego.stats` cuenta
+remates, toques descartados por lejanía, frames con la cara descartada y golpes por tipo, y las lentes lo muestran.

@@ -147,14 +147,46 @@ def casco_y_defectos(contorno: np.ndarray) -> tuple[np.ndarray, list[Defecto]]:
     return casco_pts, defectos
 
 
-GESTOS = {
-    0: ("bloqueo", 0.70),
-    1: ("toque", 0.50),
+GESTOS = {  # dedos levantados → nombre de la mano y fuerza
+    0: ("puño", 1.00),
+    1: ("puño", 0.95),
     2: ("golpe", 0.80),
     3: ("golpe", 0.85),
-    4: ("remate", 1.00),
-    5: ("remate", 1.05),
+    4: ("mano abierta", 0.60),
+    5: ("mano abierta", 0.55),
 }
+
+# Tipos de golpe del juego y su nombre en pantalla
+TIPOS_GOLPE = {
+    "remate": "¡Remate!",
+    "fuerte": "Golpe fuerte",
+    "golpe": "Golpe",
+    "suave": "Toque suave",
+    "bloqueo": "Bloqueo",
+}
+
+
+def tipo_de_golpe(n_dedos: int | None = None, vz_cm: float | None = None, area_rel: float | None = None,
+                  solidez: float | None = None, remate_vz: float = 60.0) -> str:
+    """Qué golpe es, según lo que tocó el balón.
+
+    - Una mano reconocida que avanza hacia la cámara más rápido que ``remate_vz``
+      (cm/s, con :math:`Z = f\\,W/w` de la calibración) → **remate**.
+    - Puño (0-1 dedos) → **fuerte**; mano abierta (4-5) → **suave**; si no, golpe normal.
+    - Sin mano: un objeto grande (≥ 3 veces el disco del balón) y compacto (solidez
+      ≥ 0.8), como un cuaderno, → **bloqueo**; si no, golpe normal.
+    """
+    if n_dedos is not None:
+        if vz_cm is not None and vz_cm <= -remate_vz:
+            return "remate"
+        if n_dedos <= 1:
+            return "fuerte"
+        if n_dedos >= 4:
+            return "suave"
+        return "golpe"
+    if area_rel is not None and area_rel >= 3.0 and (solidez or 0.0) >= 0.8:
+        return "bloqueo"
+    return "golpe"
 
 
 @dataclass

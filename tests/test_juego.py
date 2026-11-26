@@ -284,9 +284,9 @@ def test_vistas_por_tema_en_la_ventana():
         assert j.paso().shape[:2] == (540, 960)  # el tema se ve dentro del juego
     assert vistas == list(VISTAS[1:-1])
     j.vista = "morfologia"
-    cierre = j.config.tam_cierre
+    apertura = j.config.mov_apertura
     j.tecla(ord("]"))
-    assert j.config.tam_cierre != cierre
+    assert j.config.mov_apertura != apertura  # el ajuste de morfología cambia la limpieza del movimiento
     j.tecla(ord("b"))
     assert j.vista == "umbralizacion"
 
@@ -368,7 +368,7 @@ def test_cualquier_objeto_en_movimiento_devuelve_el_balon():
         if "golpe" in j.eventos_totales:
             break
     assert "golpe" in j.eventos_totales
-    assert j.partida.marcas[-1].texto == "objeto" and j.partida.balon.vel[0] > 0  # va hacia el rival
+    assert j.partida.marcas[-1].texto == "Golpe" and j.partida.balon.vel[0] > 0  # va hacia el rival
     assert j.jugadores[-1].contacto.toca
 
 

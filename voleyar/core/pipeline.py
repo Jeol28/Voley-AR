@@ -33,6 +33,7 @@ from voleyar.core import config as cfgc
 from voleyar.core import filtros as fil
 from voleyar.core import histogramas as his
 from voleyar.core import morfologia as mor
+from voleyar.core import movimiento as movi
 from voleyar.core import segmentacion as seg
 from voleyar.core import umbralizacion as umb
 
@@ -66,6 +67,15 @@ class ConfigPipeline:
     exigir_movimiento: bool = True  # con seguimiento: una mano nueva tiene que haberse movido
     golpe_por_movimiento: bool = False  # calcular siempre el primer plano en movimiento: con él golpea cualquier objeto
     area_min_frac: float = 0.004  # área mínima de la mano como fracción de la imagen
+    # --- qué se mueve y qué toca el balón (voleyar/core/movimiento.py) ---
+    umbral_luz: float = 0.30  # distancia de Bhattacharyya entre histogramas desde la que es un cambio de luz
+    mov_t_min: int = 18  # mínimo del umbral de Otsu sobre |frame - fondo|
+    mov_apertura: int = 3  # px (imagen de 320): quita el ruido suelto
+    mov_cierre: int = 5  # px (imagen de 320): une el objeto
+    mov_area_min: float = 0.0015  # área mínima de un objeto en movimiento (fracción de la imagen)
+    ignorar_caras_golpe: bool = True  # la cara (Viola-Jones) no golpea el balón
+    remate_vz: float = 60.0  # cm/s hacia la cámara (calibración: Z = f·W/w) desde los que es remate
+    cercania_min: float = 0.10  # Depth Anything: lo que no esté más cerca que esto no golpea (0 = no filtrar)
 
 
 @dataclass
@@ -76,7 +86,7 @@ class EstadoPipeline:
     caras_por_lado: dict[int, tuple] = field(default_factory=dict)  # última cara de cada mitad y su frame
     n_frame: int = 0
     seguidores: dict[int, car.SeguidorMano] = field(default_factory=lambda: {lado: car.SeguidorMano() for lado in LADOS})
-    movimiento: seg.DetectorMovimiento = field(default_factory=seg.DetectorMovimiento)
+    movimiento: movi.AnalizadorMovimiento = field(default_factory=movi.AnalizadorMovimiento)
 
 
 @dataclass
@@ -133,7 +143,8 @@ class ResultadoFrame:
     clahe: np.ndarray | None = None
     suavizada: np.ndarray | None = None
     manos: dict[int, ResultadoMano] = field(default_factory=dict)
-    movimiento: np.ndarray | None = None  # primer plano en movimiento (MOG2): lo que no es el entorno
+    movimiento: np.ndarray | None = None  # objetos en movimiento (sin la cara): lo que no es el entorno
+    mov: movi.ResultadoMovimiento | None = None  # todo el detalle: luz, Otsu, morfología, objetos
     tiempos_ms: dict[str, float] = field(default_factory=dict)
 
     def mano(self, lado: int) -> ResultadoMano | None:
@@ -348,7 +359,9 @@ def procesar_frame(frame: np.ndarray, modelo_camara: cal.ModeloCamara | None,
     res.clahe, res.suavizada = preprocesar(img, config)
     marca("clahe+suavizado")
     calcular = (config.seguimiento and config.exigir_movimiento) or config.golpe_por_movimiento
-    res.movimiento = estado.movimiento.aplicar(img) if calcular else None
+    res.mov = estado.movimiento.aplicar(img, config, res.caras) if calcular else None
+    res.movimiento = res.mov.mascara if res.mov is not None else None
+    marca("movimiento")
     mov_mano = res.movimiento if config.seguimiento and config.exigir_movimiento else None
     for lado in lados:
         res.manos[lado] = _procesar_mano(lado, res.suavizada, pieles.get(lado), res.mascara_caras, modelo, pose,

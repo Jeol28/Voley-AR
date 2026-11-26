@@ -51,17 +51,17 @@ Preparación antes de grabar:
 
 | Tiempo | Vista | Qué mostrar y decir | Ajuste a probar | Archivo / función |
 |---|---|---|---|---|
-| 2:40 | 1 · Calibración | Rectas curvadas por la lente vs. imagen corregida; f y k1; "Z = 58 cm con calibración (75 sin ella)". | Apagar la calibración: la distancia salta y los golpes empiezan a salir inválidos. | `core/calibracion.py` → `corregir_distorsion`, `distancia_por_tamano` |
-| 3:15 | 2 · Filtros | Zona de las manos antes y después del suavizado, bordes de Canny; el ruido baja. | Cambiar a mediana o bilateral, y a "ninguno" para ver el ruido. | `core/filtros.py` → `suavizar`, `canny`, `convolucion_manual` |
-| 3:45 | 3 · Histogramas | El histograma Cr-Cb de la piel de cada jugador, aprendido solo de su mano (son distintos), y la retroproyección; contraste con CLAHE. | Subir el clip de CLAHE. | `core/histogramas.py` → `calibrar_piel`, `retroproyeccion` |
-| 4:15 | 4 · Umbralización | La curva de Otsu de cada mitad con su T; la máscara binaria. | Subir el umbral mínimo hasta que la mano se rompa. | `core/umbralizacion.py` → `otsu_manual` |
-| 4:45 | 5 · Morfología | Máscara antes/después: regiones de decenas a pocas. | Cierre de 9 px: los dedos se pegan (y el conteo falla). | `core/morfologia.py` → `limpiar_mascara` |
-| 5:20 | 6 · Segmentación | Mano blanca, brazo naranja, cara roja (Viola-Jones); pasar la mano por delante de la cara y ver el watershed. | Corte por distancia vs. por ancho. | `core/segmentacion.py` → `detectar_caras`, `separar_de_la_cara`, `separar_mano_brazo` |
-| 6:00 | 7 · Caracterización | Casco convexo, valles y puntas; cambiar de mano abierta (remate) a un dedo (toque). | Cambiar k del umbral de los dedos. | `core/caracterizacion.py` → `analizar_mano` |
-| 6:40 | 8 · Transformers | Mapa de profundidad (la mano más clara que la cara) y cajas de OWLv2; latencias (~25 ms el clásico vs. ~500 ms OWLv2). | Jugar unos segundos con OWLv2 para notar la latencia. | `core/transformers_models.py` → `mano_delante_de_la_cara`, `detectar_manos` |
+| 2:40 | 1 · Calibración | Distancia de la mano y su velocidad: acercarla rápido a la cámara da "¡Remate!". | Apagar la calibración: Z y su velocidad cambian y el remate sale de más o de menos. | `core/calibracion.py` → `distancia_por_tamano`; `juego/bucle.py` → `_velocidad_z` |
+| 3:15 | 2 · Filtros | El ruido de la cámara que «se mueve» (rojo) frente a lo que de verdad se mueve (blanco). | "ninguno": el contador de puntos de ruido sube. | `core/filtros.py` → `suavizar`; `core/movimiento.py` |
+| 3:45 | 3 · Histogramas | Histograma de la luz (referencia vs. ahora) y la distancia de Bhattacharyya; prender una lámpara: "cambio de luz", el balón no se mueve. | Subir el umbral del cambio de luz y repetir: ahora la lámpara golpea el balón. | `core/movimiento.py` → `AnalizadorMovimiento.aplicar` |
+| 4:15 | 4 · Umbralización | |frame − fondo| en colores, la curva de Otsu y el T que se usa. | Subir el mínimo hasta que un objeto oscuro deje de golpear. | `core/umbralizacion.py` → `otsu_manual` |
+| 4:45 | 5 · Morfología | Ruido que quita la apertura (rojo) y lo que une el cierre (verde). | Apertura de 1 px: aparecen pedacitos sueltos. | `core/morfologia.py` → `apertura`, `cierre` |
+| 5:20 | 6 · Segmentación | Cada objeto en movimiento; mover la cabeza: sale en rojo y no golpea. | "La cara golpea: sí" y cabecear el balón. | `core/movimiento.py`; `core/segmentacion.py` → `detectar_caras` |
+| 6:00 | 7 · Caracterización | Puño = golpe fuerte, mano abierta = toque suave, un cuaderno = bloqueo; el nombre aparece en el golpe. | Cambiar k del umbral de los dedos. | `core/caracterizacion.py` → `analizar_mano`, `tipo_de_golpe` |
+| 6:40 | 8 · Transformers | Mapa de profundidad; alguien pasa por detrás y su contorno sale en rojo "lejos". | Cercanía 0: ahora el que pasa por detrás devuelve el balón. | `core/movimiento.py` → `cercania`; `core/transformers_models.py` |
 
-> "Nada de esto es una demo aparte: es exactamente lo que el juego está calculando en ese frame para decidir si golpeé
-> el balón."
+> "Nada de esto es una demo aparte: cada tema decide algo de la partida, y esto es exactamente lo que el juego está
+> calculando en ese frame."
 
 ## 7:30-9:30 · Partida completa
 

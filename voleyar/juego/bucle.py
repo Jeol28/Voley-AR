@@ -79,7 +79,12 @@ class EstadoJugador:
     muestras: list = field(default_factory=list)
     delante: bool | None = None  # Depth Anything: mano delante de la cara
     valida: bool | None = None
-    contacto: object = None  # segmentacion.ContactoMovimiento del último frame
+    contacto: object = None  # movimiento.Toque del último frame
+    tipo: str | None = None  # tipo de golpe que daría ahora (caracterización)
+    cercania: float | None = None  # Depth Anything: cuánto más cerca está lo que toca el balón
+    lejos: bool = False  # lo que toca el balón está detrás (no cuenta)
+    z_hist: list = field(default_factory=list)  # (t, Z cm) de la mano: su velocidad hacia la cámara
+    vz: float | None = None  # cm/s (negativo = hacia la cámara)
     c_prev: np.ndarray | None = None  # centro (px) de lo que tocó el balón en el frame anterior
     t_prev: float = 0.0
 
@@ -131,6 +136,8 @@ class Juego:
         self.owl = None
         self._t_prev = time.perf_counter()
         self.eventos_totales: list[str] = []
+        # Lo que cada tema cambió en la partida (se muestra en su lente)
+        self.stats = {"remates": 0, "lejos": 0, "cara": 0, "tipos": {}}
 
     # compatibilidad con la UI: piel del jugador 1
     @property
@@ -336,25 +343,35 @@ class Juego:
             r = res.manos[lado]
             j = self.jugadores[lado]
             contacto, vel_objeto = self._contacto(lado, res, ahora)
+            tipo = j.tipo or "golpe"
             if r.hay_mano:
                 j.valida = self._validar(lado, r)
                 gesto, fuerza = r.gesto  # suavizado en el tiempo
                 # si lo que toca es algo en movimiento, vale aunque la mano esté fuera del plano
                 entradas[lado] = EntradaJugador(r.rayo, r.punto_plano, r.velocidad, fuerza, gesto,
-                                                None if contacto.toca else j.valida, toca=contacto.toca)
+                                                None if contacto.toca else j.valida, toca=contacto.toca, tipo=tipo)
             elif contacto.toca:  # no es una mano, pero algo que no es el entorno toca el balón
                 j.valida = None
-                entradas[lado] = EntradaJugador(None, None, vel_objeto, 0.8, "objeto", None, toca=True)
+                entradas[lado] = EntradaJugador(None, None, vel_objeto, 0.8, "objeto", None, toca=True, tipo=tipo)
             else:
                 entradas[lado] = None
+        if res.mov is not None and res.mov.descartados_cara:
+            self.stats["cara"] += 1  # frames en los que la cara se movió y no se contó
         if self.usar_owl:
             entradas = self._entradas_owl(res, entradas)
         self._aprender_piel(res)
 
         # --- partida y render ---------------------------------------------------------------
         if not self.pausado:
+            n_marcas = len(self.partida.marcas)
             ev = self.partida.actualizar(dt, entradas.get(-1), entradas.get(1))
             self.eventos_totales += ev
+            if len(self.partida.marcas) > n_marcas and getattr(self.partida, "ultimo_tipo", None) \
+                    and self.partida.marcas[-1].valido:
+                t = self.partida.ultimo_tipo["tipo"]
+                self.stats["tipos"][t] = self.stats["tipos"].get(t, 0) + 1
+                if t == "remate":
+                    self.stats["remates"] += 1
         ia_xy = self.partida.ia.pos if self.op.modo == "ia" else None
         img = ra.dibujar_escena_pantalla(img, res.pose, res.modelo, self.partida.balon.pos, ia_xy,
                                          self.partida.ia.altura_golpe, self.partida.marcas, self.partida.t,
@@ -380,7 +397,7 @@ class Juego:
         se mira esa vista, como mucho cada 2 s (en ZeroGPU cada llamada pide la GPU).
         """
         mira = self.vista == "transformers"
-        if self.op.interfaz == "web":
+        if self.op.interfaz == "web" and self.prof is None:
             if mira and ahora - self._t_modelos > 2.0:
                 from voleyar.core import transformers_models as tm
 
@@ -438,33 +455,94 @@ class Juego:
             j.piel = nueva
             j.n_aprendizajes += 1
 
-    def _contacto(self, lado: int, res: pl.ResultadoFrame, ahora: float):
-        """¿Algo en movimiento (no el fondo) cubre el balón en la mitad de este jugador?
-
-        Devuelve el contacto y la velocidad estimada del objeto en unidades de cancha
-        (por el desplazamiento de lo que se mueve sobre el balón entre dos frames).
-        """
-        from voleyar.core import segmentacion as seg
-
+    def _velocidad_z(self, lado: int, r: pl.ResultadoMano, ahora: float) -> float | None:
+        """Calibración en juego: velocidad de la mano hacia la cámara (Z = f·W/w, en cm/s)."""
         j = self.jugadores[lado]
+        if r.hay_mano and r.distancia_cm:
+            j.z_hist.append((ahora, float(r.distancia_cm)))
+        else:
+            j.z_hist.clear()
+        j.z_hist[:] = [(t, z) for t, z in j.z_hist if ahora - t <= 0.3]
+        if len(j.z_hist) >= 3 and j.z_hist[-1][0] - j.z_hist[0][0] >= 0.08:
+            t, z = np.array(j.z_hist).T
+            j.vz = float(np.polyfit(t - t[0], z, 1)[0])
+        else:
+            j.vz = None
+        return j.vz
+
+    def _contacto(self, lado: int, res: pl.ResultadoFrame, ahora: float):
+        """¿Qué objeto en movimiento (no el entorno, no la cara) toca el balón en la mitad de este jugador?
+
+        Devuelve el toque y la velocidad del objeto en unidades de cancha (por el
+        desplazamiento de su centroide entre frames); deja el tipo de golpe en el jugador.
+        """
+        from voleyar.core import caracterizacion as car
+        from voleyar.core import movimiento as movi
+
+        j, r = self.jugadores[lado], res.manos[lado]
         pos = self.partida.balon.pos
         c = cal.proyectar(np.asarray(pos)[None], res.pose, res.modelo)[0]
         r_px = ra.radio_en_pixeles(pos, res.pose, res.modelo)
         w = res.imagen.shape[1]
         if (c[0] < w / 2) != (lado < 0):  # el balón se ve en la otra mitad
-            contacto = seg.ContactoMovimiento(False, motivo="balón en la otra mitad")
+            toque = movi.Toque(False, motivo="balón en la otra mitad")
         else:
-            contacto = seg.contacto_en_movimiento(res.movimiento, c, r_px)
+            toque = movi.toque_en_balon(res.mov, c, r_px)
+        # Transformers: lo que está detrás de la escena (alguien que pasa al fondo) no golpea
+        j.cercania, lejos = None, False
+        mapa = self._mapa_reciente()
+        if toque.objeto is not None and mapa is not None and self.config.cercania_min > 0:
+            j.cercania = movi.cercania(mapa, res.mov, toque.objeto)
+            if toque.toca and j.cercania is not None and j.cercania < self.config.cercania_min:
+                lejos = True
+                toque = movi.Toque(False, toque.fraccion, toque.objeto, "está lejos, detrás de la escena")
+        if lejos and not j.lejos:
+            self.stats["lejos"] += 1
+        j.lejos = lejos
+        # Velocidad del objeto en la imagen → unidades de cancha
         vel = np.zeros(2)
-        if contacto.centroide is not None:
+        if toque.objeto is not None:
+            cen = toque.objeto.centroide
             if j.c_prev is not None and 0 < ahora - j.t_prev < 0.3:
-                d = (contacto.centroide - j.c_prev) / (ahora - j.t_prev) * (cfgc.RADIO_BALON / max(r_px, 1.0))
+                d = (cen - j.c_prev) / (ahora - j.t_prev) * (cfgc.RADIO_BALON / max(r_px, 1.0))
                 vel = np.clip(np.array([d[0], -d[1]]), -150.0, 150.0)  # en la imagen y crece hacia abajo
-            j.c_prev, j.t_prev = contacto.centroide, ahora
+            j.c_prev, j.t_prev = cen, ahora
         else:
             j.c_prev = None
-        j.contacto = contacto
-        return contacto, vel
+        # Caracterización: ¿es la mano reconocida o un objeto? ¿qué golpe es?
+        vz = self._velocidad_z(lado, r, ahora)
+        es_mano = r.hay_mano and (toque.objeto is None or self._mano_en(r, toque.objeto))
+        if es_mano:
+            n = r.dedos_estables if r.dedos_estables is not None else r.analisis.n_dedos
+            j.tipo = car.tipo_de_golpe(int(n), vz, remate_vz=self.config.remate_vz)
+        elif toque.objeto is not None:
+            o = toque.objeto
+            j.tipo = car.tipo_de_golpe(area_rel=o.area / (np.pi * r_px ** 2), solidez=o.solidez)
+        else:
+            j.tipo = None
+        j.contacto = toque
+        return toque, vel
+
+    @staticmethod
+    def _mano_en(r: pl.ResultadoMano, obj) -> bool:
+        """¿La mano reconocida es (parte de) ese objeto en movimiento? Sus cajas se cruzan."""
+        if r.analisis is None:
+            return False
+        hx, hy, hw, hh = cv2.boundingRect(r.analisis.contorno)
+        ox, oy, ow, oh = obj.caja
+        return hx < ox + ow and ox < hx + hw and hy < oy + oh and oy < hy + hh
+
+    def _mapa_reciente(self):
+        """Último mapa de Depth Anything si tiene menos de 1.5 s (si no, no se filtra por profundidad)."""
+        if self.config.cercania_min <= 0:
+            return None
+        if self.prof is not None:
+            if self.prof.resultado is not None and self.prof.edad < 1.5:
+                return self.prof.resultado.mapa
+            return None
+        if self.ultimo_prof is not None and time.perf_counter() - self._t_modelos < 1.5:
+            return self.ultimo_prof.mapa
+        return None
 
     def _estado_jugadores(self, img: np.ndarray, res: pl.ResultadoFrame) -> None:
         """Gesto, distancia y validez de cada mano, en la parte alta de su mitad."""

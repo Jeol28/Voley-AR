@@ -46,6 +46,7 @@ class EntradaJugador:
     gesto: str = "golpe"
     valida: bool | None = None  # False = mano fuera del plano de juego; None = sin información
     toca: bool = False  # algo que no es el entorno (sustracción de fondo) está sobre el balón en la imagen
+    tipo: str = "golpe"  # remate, fuerte, golpe, suave o bloqueo (caracterizacion.tipo_de_golpe)
 
 
 @dataclass
@@ -54,6 +55,15 @@ class MarcaGolpe:
     valido: bool
     t: float
     texto: str
+
+
+# Cómo vuela cada tipo de golpe: (profundidad del bote en el campo rival, altura máxima)
+PERFILES_GOLPE = {
+    "remate": (10.5, 6.2),  # rápido, bajo y al fondo
+    "fuerte": (9.5, 7.5),
+    "suave": (4.5, 12.5),  # alto y corto, cae cerca de la red
+    "bloqueo": (3.0, 6.8),  # rebota corto, justo detrás de la red
+}
 
 
 def params_pantalla() -> ParamsFisica:
@@ -144,9 +154,14 @@ class Partida:
         f = float(np.clip(e.fuerza, 0.4, 1.1))
         v = np.asarray(e.velocidad, float)
         hacia = signo * v[0]  # rapidez de la mano hacia la red
-        profundidad = np.interp(f, [0.5, 1.05], [4.5, 10.0]) + np.clip(hacia * 0.03, -2.0, 2.5)
+        if e.tipo in PERFILES_GOLPE:
+            base, apice = PERFILES_GOLPE[e.tipo]
+            profundidad = base + np.clip(hacia * 0.02, -1.0, 1.0)
+        else:
+            profundidad = np.interp(f, [0.5, 1.05], [4.5, 10.0]) + np.clip(hacia * 0.03, -2.0, 2.5)
+            apice = float(np.interp(f, [0.5, 1.05], [11.5, 7.5]) + np.clip(v[1] * 0.01, 0.0, 1.5))
         x_obj = signo * float(np.clip(profundidad, 2.5, 11.5))
-        apice = float(np.interp(f, [0.5, 1.05], [11.5, 7.5]) + np.clip(v[1] * 0.01, 0.0, 1.5))
+        apice = max(float(apice), self.balon.pos[2] + 0.5)
         vel = velocidad_para_objetivo(self.balon.pos, np.array([x_obj, 0.0]), apice, self.p)
         vel[1] = 0.0
         return vel
@@ -171,7 +186,10 @@ class Partida:
         self.botes = 0
         if not self.humano(_otro(quien)):
             self.ia.nueva_jugada()
-        self.marcas.append(MarcaGolpe(self.balon.pos.copy(), True, self.t, e.gesto))
+        from voleyar.core.caracterizacion import TIPOS_GOLPE
+
+        self.marcas.append(MarcaGolpe(self.balon.pos.copy(), True, self.t, TIPOS_GOLPE.get(e.tipo, e.gesto)))
+        self.ultimo_tipo = {"quien": quien, "tipo": e.tipo}
         if self.estado == "saque":
             self._cambiar("juego")
             self.mensaje = ""

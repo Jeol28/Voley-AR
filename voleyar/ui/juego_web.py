@@ -59,33 +59,34 @@ COMO_SE_JUEGA = """
    solo el color de su piel en cuanto reconoce sus manos.
 
 ### Golpes
-| Mano | Golpe |
+| Qué toca el balón | Golpe |
 |---|---|
-| 🖐 Abierta | **Remate**: fuerte y bajo |
-| ✌ Dos o tres dedos | **Golpe** normal |
-| ☝ Un dedo | **Toque**: suave y alto |
-| ✊ Puño | **Bloqueo** |
+| 🖐 La mano avanzando rápido hacia la cámara | **¡Remate!**: bajo, rápido y al fondo |
+| ✊ Puño | **Golpe fuerte**: largo |
+| ✌ Dos o tres dedos, o un objeto pequeño | **Golpe** normal |
+| 🖐 Mano abierta | **Toque suave**: alto y corto |
+| 📓 Un objeto grande y plano (un cuaderno) | **Bloqueo**: rebota corto |
 
-Hacia dónde muevas la mano decide hacia dónde sale el balón.
+La cara no golpea, y lo que pasa lejos, por detrás, tampoco.
 
 ### Reglas
 - Cada lado devuelve el balón con **un toque** y se permite **un bote**.
-- **No crucen la red**: cada mano juega en su mitad de la imagen.
-- El golpe vale si la mano está a la distancia a la que empezaste (el juego la mide al inicio de la partida).
+- **No crucen la red**: cada jugador golpea el balón en su mitad de la imagen.
 - Gana quien llegue primero a los puntos elegidos en Ajustes.
 
 ### Para que funcione mejor
 Calibra la cámara una vez con el tablero (botón **Calibrar cámara** del inicio): así el juego mide en centímetros
-reales a qué distancia está cada mano.
+reales a qué distancia está cada mano y a qué velocidad la acercas, que es lo que decide el remate.
 """
 
 VER_TEMAS = """
 ### ¿Cómo te ve el juego?
-Durante la partida, **¿Qué quieres ver?** cambia la pantalla a cualquiera de los temas de visión artificial que el juego
-usa en ese momento: **calibración** (la lente y la distancia de tu mano), **filtros**, **histogramas** (el color de tu
-piel), **umbralización**, **morfología**, **segmentación** (tu mano, tu brazo y tu cara), **caracterización** (tus
-dedos) y **transformers** (profundidad y detección por texto). Con **−** y **+** cambias el ajuste de ese tema y ves el
-efecto en vivo, sin dejar de jugar.
+Cada tema de visión artificial decide algo de la partida, y **¿Qué quieres ver?** lo muestra en vivo:
+**calibración** (la distancia de tu mano y el remate), **filtros** (el ruido que no debe golpear), **histogramas** (los
+cambios de luz y el color de tu piel), **umbralización** (cuánto tiene que cambiar algo para moverse), **morfología**
+(limpiar lo que se mueve), **segmentación** (cada objeto, sin tu cara), **caracterización** (el tipo de golpe) y
+**transformers** (solo golpea lo que está cerca). Con **−** y **+** cambias el ajuste de ese tema y lo notas en el
+juego.
 """
 
 CALIBRAR_INTRO = """

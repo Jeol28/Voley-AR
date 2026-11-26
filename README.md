@@ -48,21 +48,22 @@ Los transformers se usan solo en inferencia, con pesos públicos de Hugging Face
 ```
 
 - **Modos:** `2j` (dos jugadores lado a lado) e `ia` (tú a la izquierda contra la IA a la derecha).
-- **Gestos:**
+- **Con qué se golpea:** con cualquier cosa que se mueva y no sea parte del cuarto: la mano, un cuaderno, una raqueta.
+  Lo que lleva quieto unos segundos es entorno y no golpea; la cara tampoco cuenta.
+- **Tipos de golpe** (los decide la caracterización de lo que toca el balón):
 
-  | Mano | Golpe | Punto de golpe |
+  | Qué toca el balón | Golpe | Cómo vuela |
   |---|---|---|
-  | Abierta (4-5 dedos) | remate, fuerte y bajo | centro de la palma |
-  | 2-3 dedos | golpe | punta del dedo |
-  | 1 dedo | toque suave y alto | punta del dedo |
-  | Puño | bloqueo | nudillos |
+  | La mano, avanzando rápido hacia la cámara (> 60 cm/s) | **¡Remate!** | bajo, rápido y al fondo |
+  | Puño (0-1 dedos) | **Golpe fuerte** | largo |
+  | Mano con 2-3 dedos, o un objeto pequeño | **Golpe** | según la velocidad del golpe |
+  | Mano abierta (4-5 dedos) | **Toque suave** | alto y corto |
+  | Un objeto grande y compacto (un cuaderno) | **Bloqueo** | rebota corto, detrás de la red |
 
-  La dirección y la distancia dependen de cómo muevas la mano.
-- **Plano de juego:** al empezar se mide a qué distancia de la cámara está la mano de cada jugador. Un golpe solo vale
-  si la mano está en ese plano, ni mucho más cerca ni mucho más lejos. En escritorio, Depth Anything además comprueba
-  que la mano esté delante del cuerpo.
+- **Plano de juego:** al empezar se mide a qué distancia de la cámara está la mano de cada jugador; si golpea solo con
+  la mano reconocida (sin moverla), el golpe vale si la mano está en ese plano.
 - **Reglas:** un toque por lado, un bote permitido, fuera o red es punto para el otro. Gana quien llegue a 15.
-  **No se cruza la red:** cada mano solo se busca en su mitad.
+  **No se cruza la red:** cada jugador solo golpea el balón en su mitad.
 
 ## Instalación
 
@@ -157,25 +158,23 @@ dos jugadores, `I`/`J`/`K`/`L` mueve la mano del jugador 2 y `N` cambia sus dedo
 
 ## Cada tema del curso, dentro del juego
 
-No hay una aplicación ni un panel aparte para ver lo técnico: el propio juego lo muestra mientras se juega. En la
-partida, **¿Qué quieres ver?** (o `V` / `B` en la ventana) pone un "lente" sobre la escena: el mundo del juego pasa a
-verse como lo ve ese tema **en ese mismo frame** (la máscara de piel, los bordes, el mapa de profundidad…), con la
-cancha, la red y el balón encima, y una tarjeta translúcida abajo con sus números reales. Con **− / +** (o `[` / `]`)
-se cambia su ajuste principal y se ve el efecto sin dejar de jugar.
+Cada tema del curso **decide algo de la partida**, y su lente lo muestra mientras se juega. En la partida, **¿Qué
+quieres ver?** (o `V` / `B` en la ventana) pone ese tema sobre la escena, con la cancha, la red y el balón encima y
+una tarjeta abajo con sus números reales. Con **− / +** (o `[` / `]`) se cambia su ajuste y se nota en el juego.
 
-| Vista | Qué muestra en vivo | Ajuste con − / + |
-|---|---|---|
-| 1 · Calibración | La imagen de la lente con las rectas curvadas y la corregida; `f`, centro, `k1`, error de reproyección; la distancia de cada mano con y sin calibración. | usar la calibración |
-| 2 · Filtros | La zona de las manos antes y después del suavizado, con los bordes de Canny; el ruido (σ del laplaciano) antes y después. | gaussiano / mediana / bilateral / ninguno |
-| 3 · Histogramas | El histograma Cr-Cb de la piel de cada jugador y su retroproyección; el contraste antes y después de CLAHE. | clip de CLAHE |
-| 4 · Umbralización | La curva de varianza entre clases de Otsu y el histograma de cada mitad, con el umbral T elegido; la máscara binaria. | umbral mínimo de Otsu |
-| 5 · Morfología | La máscara antes y después de apertura + cierre; regiones, ruido quitado y huecos rellenados. | tamaño del cierre |
-| 6 · Segmentación | Mano (blanco), brazo (naranja) y caras de Viola-Jones (rojo) en cada mitad; si se cortó el brazo o actuó el watershed. | corte por distancia o por ancho |
-| 7 · Caracterización | La silueta de cada mano con casco convexo, valles y puntas; dedos, gesto, área en cm², solidez y circularidad. | umbral de los dedos (k·r) |
-| 8 · Transformers | El mapa de profundidad de Depth Anything y las cajas de OWLv2; latencias y si cada mano está delante de su cara. | jugar con OWLv2 |
+| Tema | Qué decide en la partida | Si lo cambias o lo quitas | Ajuste con − / + |
+|---|---|---|---|
+| 1 · Calibración | La distancia de la mano, `Z = f·W/w`, y su velocidad hacia la cámara: más de 60 cm/s es un **remate**. Corrige la distorsión de la lente. | Sin calibración `f` es aproximada: Z y su velocidad salen mal y el remate sale de más o de menos. | usar la calibración |
+| 2 · Filtros | Suaviza el frame antes de buscar movimiento, para que el ruido del sensor no "se mueva". | Con "ninguno" aparecen muchos más puntos de ruido en movimiento (la lente los cuenta). | gaussiano / mediana / bilateral / ninguno |
+| 3 · Histogramas | Compara el histograma de la luz con el de referencia (Bhattacharyya): un cambio brusco es una lámpara, no un golpe, y el juego reaprende el cuarto. También aprende solo la piel de cada jugador. | Con un umbral muy alto, prender una luz devuelve el balón solo. | umbral del cambio de luz |
+| 4 · Umbralización | Otsu sobre \|frame − fondo\| decide en cada frame cuánto tiene que cambiar un píxel para moverse (con un mínimo). | Con un mínimo alto, los objetos con poco contraste dejan de golpear; con uno bajo, el ruido sí. | umbral mínimo del movimiento |
+| 5 · Morfología | Apertura quita el ruido suelto y cierre une el objeto en una pieza. | Sin apertura quedan decenas de pedacitos sueltos que pueden tocar el balón. | apertura del movimiento |
+| 6 · Segmentación | MOG2 modela el fondo; las componentes conexas separan cada objeto; la cara (Viola-Jones) se descarta. | Si "la cara golpea", la cabeza devuelve el balón sin querer. | la cara golpea sí / no |
+| 7 · Caracterización | Dedos (casco convexo y defectos), área y solidez de lo que toca el balón deciden el **tipo de golpe**. | Cambiar `k` cambia cuántos dedos ve y, con eso, el golpe. | umbral de los dedos (k·r) |
+| 8 · Transformers | Depth Anything mide qué está cerca de la cámara: lo que pasa por detrás no golpea. | Con cercanía 0 cualquiera que pase al fondo devuelve el balón. | cercanía mínima |
 
-La vista de Histogramas dice cuántas veces se ha aprendido la piel de cada jugador; antes de la primera muestra lo que
-el rango fijo de YCrCb toma por piel.
+En tu computador Depth Anything corre en un hilo aparte (~30 ms en la GPU del Mac). En el Space, con ZeroGPU, solo se
+calcula al mirar su lente, así que el filtro de cercanía casi no actúa allí.
 
 ## Despliegue en Hugging Face Spaces (ZeroGPU)
 
@@ -407,11 +406,11 @@ El pipeline de las dos manos tarda **≈ 20-25 ms por frame** a 960 px (la casca
      objeto de color piel quieto no cuenta.
   3. **Histéresis:** aparece tras 3 frames válidos y desaparece tras 6 inválidos; el gesto se suaviza con la mayoría
      de los últimos 5 frames.
-- **Se golpea con cualquier cosa que no sea el entorno.** La mano no es obligatoria: el balón se devuelve si
-  algo en movimiento lo cubre en la imagen (al menos el 12 % de su disco en el primer plano de MOG2), sea una mano,
-  un cuaderno o la cabeza. Lo que lleva quieto un rato pasa al fondo y no golpea, y si más de la mitad de la imagen
-  "se mueve" a la vez se trata como un cambio de luz y se ignora. La mano reconocida sigue aportando el gesto
-  (fuerza) y el plano de juego; un objeto golpea con fuerza media y la velocidad que traiga.
+- **Se golpea con cualquier cosa que no sea el entorno** (`voleyar/core/movimiento.py`). Cada frame, reducido a
+  320 px, pasa por los temas en cadena: suavizado → histograma de la luz → MOG2 → Otsu sobre |frame − fondo| →
+  apertura y cierre → componentes conexas sin la cara. Si un objeto cubre al menos el 12 % del disco del balón, lo
+  devuelve; su forma (o los dedos de la mano) decide el tipo de golpe, y Depth Anything descarta lo que está lejos.
+  Cuesta ~1.3 ms por frame.
 
 Más detalle en [`docs/arquitectura.md`](docs/arquitectura.md).
 
