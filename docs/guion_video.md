@@ -52,7 +52,7 @@ Preparación antes de grabar:
 | Tiempo | Vista | Qué mostrar y decir | Ajuste a probar | Archivo / función |
 |---|---|---|---|---|
 | 2:40 | 1 · Calibración | Distancia de la mano y su velocidad: acercarla rápido a la cámara da "¡Remate!". | Apagar la calibración: Z y su velocidad cambian y el remate sale de más o de menos. | `core/calibracion.py` → `distancia_por_tamano`; `juego/bucle.py` → `_velocidad_z` |
-| 3:15 | 2 · Filtros | El ruido de la cámara que «se mueve» (rojo) frente a lo que de verdad se mueve (blanco). | "ninguno": el contador de puntos de ruido sube. | `core/filtros.py` → `suavizar`; `core/movimiento.py` |
+| 3:15 | 2 · Filtros | Bordes de Sobel; mover la mano lento ("nítido") y muy rápido ("borroso: ¡más fuerza!") y ver que el balón sale más lejos. | "Fuerza por velocidad": apagada vs. turbo. | `core/movimiento.py` → `ancho_de_borde`; `juego/bucle.py` → `borrosidad` |
 | 3:45 | 3 · Histogramas | Histograma de la luz (referencia vs. ahora) y la distancia de Bhattacharyya; prender una lámpara: "cambio de luz", el balón no se mueve. | Subir el umbral del cambio de luz y repetir: ahora la lámpara golpea el balón. | `core/movimiento.py` → `AnalizadorMovimiento.aplicar` |
 | 4:15 | 4 · Umbralización | |frame − fondo| en colores, la curva de Otsu y el T que se usa. | Subir el mínimo hasta que un objeto oscuro deje de golpear. | `core/umbralizacion.py` → `otsu_manual` |
 | 4:45 | 5 · Morfología | La zona de golpe (naranja) alrededor de la mano: es una dilatación; en rojo, el ruido que borra la apertura. | Zona "gigante": pasar la mano cerca del balón, sin tocarlo, y verlo volver. | `core/morfologia.py` → `apertura`, `cierre`; `cv2.dilate` en `core/movimiento.py` |

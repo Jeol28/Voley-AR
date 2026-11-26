@@ -244,3 +244,63 @@ def test_la_dilatacion_agranda_la_zona_de_golpe():
     t = movi.toque_en_balon(gigante, balon, radio)
     assert t.toca and t.objeto is not None
     assert np.count_nonzero(gigante.zona_golpe) > np.count_nonzero(gigante.etiquetas)
+
+
+def _desenfoque(img, largo):
+    """Desenfoque por movimiento horizontal (lo que hace la cámara con algo que pasa rápido)."""
+    k = np.zeros((largo, largo), np.float32)
+    k[largo // 2, :] = 1.0 / largo
+    return cv2.filter2D(img, -1, k)
+
+
+@pytest.mark.parametrize("color", [(40, 200, 60), (150, 170, 200), (90, 120, 170)])
+def test_el_ancho_del_borde_crece_con_el_desenfoque(color):
+    anchos = []
+    for largo in (1, 9, 25, 41):
+        img = _cuarto()
+        cv2.rectangle(img, (280, 140), (380, 230), color, -1)  # se mueve de lado: solo se desenfoca de lado
+        img = _desenfoque(img, largo) if largo > 1 else img
+        peq = cv2.resize(img, (320, 180), interpolation=cv2.INTER_AREA)
+        m = np.zeros((180, 320), np.uint8)
+        m[70:115, 140 - largo // 4:190 + largo // 4] = 255
+        anchos.append(movi.ancho_de_borde(cv2.cvtColor(peq, cv2.COLOR_BGR2GRAY), m))
+    assert anchos == sorted(anchos) and anchos[0] < 2.6 and anchos[-1] > 5.0
+
+
+def test_lo_borroso_es_rapido_y_el_golpe_sale_mas_fuerte():
+    def ultimo(desenfoque):
+        frames = _aprendido()
+        for k in range(4):
+            f = _con_bloque(_cuarto(), 100 + 12 * k, 120, lado=70)
+            frames.append((_desenfoque(f, desenfoque) if desenfoque else f, ()))
+        res, _ = _analizar(frames)
+        return max(res.objetos, key=lambda o: o.area)
+
+    lento, rapido = ultimo(0), ultimo(31)
+    assert lento.borrosidad < 0.2 and rapido.borrosidad > 0.5
+    p = Partida(modo="2j")
+    p.balon.pos = np.array([-6.0, 0.0, 6.0])
+    normal = p.velocidad_golpe(EntradaJugador(tipo="golpe", potencia=0.0), JUGADOR)
+    fuerte = p.velocidad_golpe(EntradaJugador(tipo="golpe", potencia=1.0), JUGADOR)
+    assert fuerte[0] > normal[0] and fuerte[2] <= normal[2]  # más rápido hacia el rival y más bajo
+    bloqueo = [p.velocidad_golpe(EntradaJugador(tipo="bloqueo", potencia=x), JUGADOR) for x in (0.0, 1.0)]
+    assert np.allclose(*bloqueo)  # el bloqueo no cambia con la velocidad
+
+
+def test_en_la_partida_un_golpe_borroso_sale_rapidisimo():
+    from voleyar.juego.navegador import paso_navegador
+
+    j = _juego()
+    for _ in range(25):
+        paso_navegador(j, _cuarto())
+    for k in range(30):  # algo nítido moviéndose en la mitad del jugador 1, lejos del balón: lo normal
+        paso_navegador(j, _con_bloque(_cuarto(), 20 + 3 * (k % 10), 250, lado=60))
+    assert "golpe" not in j.eventos_totales and len(j.jugadores[-1].anchos) >= 20
+    c, r = _balon(j)
+    for k in range(12):  # ahora llega borroso, muy rápido, sobre el balón
+        x, y = int(c[0] - 35 + (k % 3 - 1) * 6), int(c[1] - 35)
+        paso_navegador(j, _desenfoque(_con_bloque(_cuarto(), max(0, x), max(0, y), 70), 41))
+        if "golpe" in j.eventos_totales:
+            break
+    assert "golpe" in j.eventos_totales and "rapidísimo" in j.partida.marcas[-1].texto
+    assert j.stats["rapidos"] == 1

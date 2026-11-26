@@ -167,6 +167,9 @@ frame → suavizado (filtros) → histograma de gris vs. referencia (Bhattachary
 
 - **Transformers:** `cercania` compara la mediana de la disparidad de Depth Anything dentro del objeto con la de la
   escena (normalizada por el rango p5-p95). Por debajo de `cercania_min` (0.10) el toque no cuenta.
+- **Filtros:** `ancho_de_borde` estima el desenfoque por movimiento como :math:`w ≈ C / \max|∇I|` (Sobel en x
+  y en y, se toma el mayor). `Juego.borrosidad` lo compara con la mediana de lo visto en la mitad del jugador: desde
+  1.5× empieza a sumar potencia y en 2.5× llega al máximo (golpe más lejos y más bajo).
 - **Calibración:** la velocidad `vz` de la mano hacia la cámara es la pendiente de `Z = f·W/w` en los últimos
   0.3 s. Con `vz ≤ −60 cm/s` el golpe es un remate.
 - **Caracterización:** `tipo_de_golpe` usa los dedos estables si la mano reconocida es la que toca (sus cajas se

@@ -86,7 +86,7 @@ VER_TEMAS = """
 Mientras juegas, **¿Qué quieres ver?** te muestra cómo te ve el juego. Cada tema hace algo:
 
 - **Calibración:** mide qué tan cerca está tu mano. ¡Acércala rápido para rematar!
-- **Filtros:** borra los puntitos que tiemblan en la cámara.
+- **Filtros:** si mueves la mano tan rápido que se ve borrosa, ¡el golpe sale más fuerte!
 - **Histogramas:** se da cuenta cuando alguien prende o apaga una luz.
 - **Umbralización:** decide qué se movió. Lo blanco se está moviendo.
 - **Morfología:** agranda tu zona de golpe. ¡Más grande es más fácil!

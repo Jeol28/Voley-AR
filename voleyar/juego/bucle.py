@@ -85,6 +85,8 @@ class EstadoJugador:
     lejos: bool = False  # lo que toca el balón está detrás (no cuenta)
     z_hist: list = field(default_factory=list)  # (t, Z cm) de la mano: su velocidad hacia la cámara
     vz: float | None = None  # cm/s (negativo = hacia la cámara)
+    potencia: float = 0.0  # filtros: qué tan borroso (rápido) viene lo que toca el balón
+    anchos: list = field(default_factory=list)  # anchos de borde recientes en su mitad: lo "normal" para él
     c_prev: np.ndarray | None = None  # centro (px) de lo que tocó el balón en el frame anterior
     t_prev: float = 0.0
 
@@ -139,7 +141,7 @@ class Juego:
         self.lineas_tema: list[str] = []  # datos del tema que se está viendo (para el panel)
         self.graficas_tema: list = []
         # Lo que cada tema cambió en la partida (se muestra en su lente)
-        self.stats = {"remates": 0, "lejos": 0, "cara": 0, "tipos": {}}
+        self.stats = {"remates": 0, "lejos": 0, "cara": 0, "rapidos": 0, "tipos": {}}
 
     # compatibilidad con la UI: piel del jugador 1
     @property
@@ -351,10 +353,12 @@ class Juego:
                 gesto, fuerza = r.gesto  # suavizado en el tiempo
                 # si lo que toca es algo en movimiento, vale aunque la mano esté fuera del plano
                 entradas[lado] = EntradaJugador(r.rayo, r.punto_plano, r.velocidad, fuerza, gesto,
-                                                None if contacto.toca else j.valida, toca=contacto.toca, tipo=tipo)
+                                                None if contacto.toca else j.valida, toca=contacto.toca, tipo=tipo,
+                                                potencia=j.potencia)
             elif contacto.toca:  # no es una mano, pero algo que no es el entorno toca el balón
                 j.valida = None
-                entradas[lado] = EntradaJugador(None, None, vel_objeto, 0.8, "objeto", None, toca=True, tipo=tipo)
+                entradas[lado] = EntradaJugador(None, None, vel_objeto, 0.8, "objeto", None, toca=True, tipo=tipo,
+                                                potencia=j.potencia)
             else:
                 entradas[lado] = None
         if res.mov is not None and res.mov.descartados_cara:
@@ -374,6 +378,8 @@ class Juego:
                 self.stats["tipos"][t] = self.stats["tipos"].get(t, 0) + 1
                 if t == "remate":
                     self.stats["remates"] += 1
+                if self.partida.ultimo_tipo.get("potencia", 0.0) >= 0.5:
+                    self.stats["rapidos"] += 1
         ia_xy = self.partida.ia.pos if self.op.modo == "ia" else None
         img = ra.dibujar_escena_pantalla(img, res.pose, res.modelo, self.partida.balon.pos, ia_xy,
                                          self.partida.ia.altura_golpe, self.partida.marcas, self.partida.t,
@@ -526,8 +532,36 @@ class Juego:
             j.tipo = car.tipo_de_golpe(area_rel=o.area / (np.pi * r_px ** 2), solidez=o.solidez)
         else:
             j.tipo = None
+        # Filtros: lo borroso viene rápido y el golpe sale más fuerte
+        self._aprender_anchos(lado, res)
+        j.potencia = 0.0
+        if toque.objeto is not None:
+            j.potencia = float(np.clip(self.borrosidad(lado, toque.objeto) * self.config.potencia_borroso, 0.0, 1.0))
         j.contacto = toque
         return toque, vel
+
+    def _aprender_anchos(self, lado: int, res: pl.ResultadoFrame) -> None:
+        """Guarda los anchos de borde de lo que se mueve en la mitad del jugador (los últimos ~5 s)."""
+        if res.mov is None:
+            return
+        w = res.imagen.shape[1]
+        j = self.jugadores[lado]
+        for o in res.mov.objetos:
+            if o.ancho_borde > 0 and (o.centroide[0] < w / 2) == (lado < 0):
+                j.anchos.append(o.ancho_borde)
+        del j.anchos[:-150]
+
+    def borrosidad(self, lado: int, obj) -> float:
+        """Qué tan borroso está ``obj`` comparado con lo normal para este jugador (0 = como siempre, 1 = 2.5 veces).
+
+        Cada cámara, luz y mano tienen bordes más o menos suaves; por eso no se usa un
+        ancho fijo sino la mediana de lo que se ha visto en su mitad en los últimos segundos.
+        """
+        j = self.jugadores[lado]
+        if len(j.anchos) < 20 or obj.ancho_borde <= 0:
+            return 0.0
+        base = max(float(np.median(j.anchos)), 1.0)
+        return float(np.clip((obj.ancho_borde / base - 1.5) / 1.0, 0.0, 1.0))  # 1.5× lo normal empieza, 2.5× es el máximo
 
     @staticmethod
     def _mano_en(r: pl.ResultadoMano, obj) -> bool:

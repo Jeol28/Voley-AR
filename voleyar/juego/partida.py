@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from voleyar.core import config as cfg
 from voleyar.core.calibracion import distancia_rayo_punto
 from voleyar.juego.fisica import Balon, Evento, ParamsFisica, paso, velocidad_para_objetivo
 from voleyar.juego.ia_rival import IARival
@@ -47,6 +48,7 @@ class EntradaJugador:
     valida: bool | None = None  # False = mano fuera del plano de juego; None = sin información
     toca: bool = False  # algo que no es el entorno (sustracción de fondo) está sobre el balón en la imagen
     tipo: str = "golpe"  # remate, fuerte, golpe, suave o bloqueo (caracterizacion.tipo_de_golpe)
+    potencia: float = 0.0  # 0-1: qué tan borroso (rápido) llegó lo que golpea; el golpe sale más fuerte
 
 
 @dataclass
@@ -160,6 +162,9 @@ class Partida:
         else:
             profundidad = np.interp(f, [0.5, 1.05], [4.5, 10.0]) + np.clip(hacia * 0.03, -2.0, 2.5)
             apice = float(np.interp(f, [0.5, 1.05], [11.5, 7.5]) + np.clip(v[1] * 0.01, 0.0, 1.5))
+        if e.tipo != "bloqueo" and e.potencia > 0:  # golpe rápido (borroso): más lejos y más bajo, o sea más veloz
+            profundidad += 2.5 * e.potencia
+            apice = max(float(apice) - 1.5 * e.potencia, cfg.ALTURA_RED + 1.5)
         x_obj = signo * float(np.clip(profundidad, 2.5, 11.5))
         apice = max(float(apice), self.balon.pos[2] + 0.5)
         vel = velocidad_para_objetivo(self.balon.pos, np.array([x_obj, 0.0]), apice, self.p)
@@ -188,8 +193,9 @@ class Partida:
             self.ia.nueva_jugada()
         from voleyar.core.caracterizacion import TIPOS_GOLPE
 
-        self.marcas.append(MarcaGolpe(self.balon.pos.copy(), True, self.t, TIPOS_GOLPE.get(e.tipo, e.gesto)))
-        self.ultimo_tipo = {"quien": quien, "tipo": e.tipo}
+        nombre = TIPOS_GOLPE.get(e.tipo, e.gesto) + (" ¡rapidísimo!" if e.potencia >= 0.5 else "")
+        self.marcas.append(MarcaGolpe(self.balon.pos.copy(), True, self.t, nombre))
+        self.ultimo_tipo = {"quien": quien, "tipo": e.tipo, "potencia": e.potencia}
         if self.estado == "saque":
             self._cambiar("juego")
             self.mensaje = ""

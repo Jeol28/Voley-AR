@@ -39,7 +39,7 @@ TITULOS = {
 # El nombre del tema de la clase y, al lado, lo que hace en palabras de juego
 APODOS = {  # cortos: tienen que caber en el menú
     "calibracion": "tu distancia",
-    "filtros": "sin ruido",
+    "filtros": "velocidad",
     "histogramas": "la luz",
     "umbralizacion": "¿qué se movió?",
     "morfologia": "zona de golpe",
@@ -49,7 +49,7 @@ APODOS = {  # cortos: tienen que caber en el menú
 }
 QUE_HACE = {
     "calibracion": "El juego mide qué tan cerca está tu mano. ¡Acércala rápido a la cámara para hacer un remate!",
-    "filtros": "La cámara tiene puntitos que tiemblan. El juego los borra para que no golpeen el balón solos.",
+    "filtros": "Si mueves la mano muy rápido, la cámara la ve borrosa. Un filtro lo nota, y el golpe sale más fuerte.",
     "histogramas": "Si alguien prende o apaga una luz, el juego se da cuenta y no lo confunde con un golpe.",
     "umbralizacion": "El juego decide qué cambió lo suficiente para contar como movimiento. Lo blanco se está moviendo.",
     "morfologia": "El juego agranda lo que se mueve: con una zona de golpe más grande es más fácil alcanzar el balón.",
@@ -88,9 +88,8 @@ _SI_NO = _nombres((True, "sí"), (False, "no"))
 PARAMETROS: dict[str, Parametro] = {
     "calibracion": Parametro("Usar la calibración", (True, False), lambda j: j.config.usar_calibracion,
                              lambda j, v: j.accion("calibracion") if v != j.config.usar_calibracion else None, _SI_NO),
-    "filtros": Parametro("Limpiar la imagen", ("gaussiano", "mediana", "bilateral", "ninguno"), *_cfg("suavizado"),
-                         _nombres(("gaussiano", "suave"), ("mediana", "fuerte"), ("bilateral", "cuidando bordes"),
-                                  ("ninguno", "apagado"))),
+    "filtros": Parametro("Fuerza por velocidad", (1.0, 2.0, 0.0), *_cfg("potencia_borroso"),
+                         _nombres((0.0, "apagada"), (1.0, "normal"), (2.0, "turbo"))),
     "histogramas": Parametro("Atento a la luz", (0.15, 0.2, 0.3, 0.45), *_cfg("umbral_luz"),
                              _nombres((0.15, "muchísimo"), (0.2, "mucho"), (0.3, "normal"), (0.45, "poco"))),
     "umbralizacion": Parametro("Sensible al movimiento", (8, 12, 18, 25, 35, 50), *_cfg("mov_t_min"),
@@ -255,21 +254,24 @@ def _calibracion(juego, res, img):
 
 
 def _filtros(juego, res, img):
-    out = _oscurecer(res.suavizada, 0.35)
+    # Bordes de Sobel en naranja tenue: lo nítido tiene bordes finos, lo que se mueve rápido los tiene anchos
+    g = cv2.cvtColor(res.imagen, cv2.COLOR_BGR2GRAY)
+    borde = cv2.magnitude(cv2.Sobel(g, cv2.CV_32F, 1, 0), cv2.Sobel(g, cv2.CV_32F, 0, 1))
+    borde = vis.normalizar_u8(np.minimum(borde, np.percentile(borde, 99)))
+    out = _mezclar(_oscurecer(img, 0.45), np.full_like(img, vis.BGR_NARANJA), 0.6, (borde > 60).astype(np.uint8))
     m = res.mov
-    lineas = []
-    if m is not None and m.cruda is not None:
-        cruda, limpia = _grande(m.cruda, img), _grande(m.limpia, img)
-        sueltos = cv2.bitwise_and(cruda, cv2.bitwise_not(limpia))
-        out[limpia > 0] = vis.BGR_NEUTRO
-        out[cv2.dilate(sueltos, np.ones((3, 3), np.uint8)) > 0] = vis.BGR_ROJO
-        lineas.append(f"Puntitos de ruido borrados: {m.puntos_sueltos} (en rojo). Si apagas la limpieza, aparecen más"
-                      "crecen golpean el balón solos")
-    else:
-        lineas.append("Aprendiendo el fondo…")
-    ruido = lambda im: float(np.std(cv2.Laplacian(cv2.cvtColor(im, cv2.COLOR_BGR2GRAY), cv2.CV_32F)))  # noqa: E731
-    lineas.append(f"Ruido de la cámara: {ruido(res.clahe):.0f} antes, {ruido(res.suavizada):.0f} después. En blanco, lo que "
-                  "de verdad se mueve")
+    if m is not None and m.etiquetas is not None:
+        w = img.shape[1]
+        for o in m.objetos:
+            lado = -1 if o.centroide[0] < w / 2 else 1
+            rapido = lado in juego.jugadores and juego.borrosidad(lado, o) >= 0.5
+            color = vis.BGR_VERDE if rapido else vis.BGR_NEUTRO
+            cv2.drawContours(out, [o.contorno], -1, color, 2, cv2.LINE_AA)
+            x, y, _, _ = o.caja
+            vis.poner_texto(out, "borroso: ¡más fuerza!" if rapido else "nítido", (x, max(0, y - 26)),
+                            max(13, img.shape[0] // 30), color, fondo=vis.BGR_GRAFITO)
+    lineas = [f"Golpes rapidísimos en esta partida: {juego.stats['rapidos']}",
+              "Mueve la mano tan rápido que se vea borrosa: el balón sale más fuerte y más lejos"]
     return out, lineas
 
 
