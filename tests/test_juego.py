@@ -234,3 +234,35 @@ def test_juego_en_el_navegador_con_frames_externos():
     j.t_cuenta = time.perf_counter()
     out = paso_navegador(j, fuente.leer()[1])
     assert j.fase == "jugando" and out.shape[:2] == (360, 640)
+
+
+def test_menus_del_juego_de_escritorio():
+    from voleyar.juego.bucle import Juego, OpcionesJuego
+
+    j = Juego(OpcionesJuego(sintetico=True, profundidad=False, headless=True, menu=True, ancho=960, alto=540))
+    assert j.pantalla == "menu" and j.paso() is not None
+    assert [b.accion for b in j.botones] == ["ia", "2j", "ajustes", "salir"]
+    j.tecla(ord("a"))
+    j.tecla(ord("d"))  # dificultad: normal → difícil
+    j.tecla(ord("p"))  # puntos: 15 → 7
+    j.tecla(ord("m"))
+    assert j.op.dificultad == "dificil" and j.op.puntos == 7 and j.pantalla == "menu"
+    j.tecla(ord("2"))
+    assert j.pantalla == "juego" and j.op.modo == "2j" and j.partida.puntos_para_ganar == 7
+    for _ in range(20):
+        j.paso()
+    j.tecla(27)  # ESC → pausa
+    assert j.pausado and j.paso() is not None and [b.accion for b in j.botones][0] == "seguir"
+    t = j.partida.t
+    j.paso()
+    assert j.partida.t == t  # en pausa la partida no avanza
+    j.tecla(ord("s"))
+    j.partida.marcador["jugador"] = 6
+    j.partida._punto("jugador", "prueba")
+    j.paso()
+    assert j.partida.estado == "fin" and [b.accion for b in j.botones][0] == "revancha"
+    # Clic con el mouse sobre "Revancha"
+    x, y, w, h = j.botones[0].rect
+    j._mouse(cv2.EVENT_LBUTTONUP, x + w // 2, y + h // 2, 0, None)
+    assert j.partida.marcador == {"jugador": 0, "rival": 0} and j.fase == "jugando"
+    assert j.tecla(27) is True and j.pausado  # ESC durante la partida pausa, no cierra el juego
