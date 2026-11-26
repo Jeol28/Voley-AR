@@ -22,3 +22,4 @@ flagged/
 
 # Capturas temporales de calibración
 config/capturas/
+dist/

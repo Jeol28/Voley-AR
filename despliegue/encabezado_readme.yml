@@ -1,0 +1,22 @@
+---
+title: Voley AR
+emoji: 🏐
+colorFrom: red
+colorTo: gray
+sdk: gradio
+sdk_version: 6.32.0
+python_version: "3.12"
+app_file: app.py
+pinned: false
+license: mit
+short_description: Voleibol en realidad aumentada sobre la mesa
+models:
+  - depth-anything/Depth-Anything-V2-Small-hf
+  - google/owlv2-base-patch16-ensemble
+tags:
+  - computer-vision
+  - augmented-reality
+  - opencv
+  - aruco
+  - zerogpu
+---
