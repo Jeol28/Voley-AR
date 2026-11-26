@@ -47,6 +47,8 @@ os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")  # operaciones no sopo
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
 
+from voleyar.entorno import HAY_ZEROGPU, gpu  # noqa: E402
+
 MODELO_PROFUNDIDAD = "depth-anything/Depth-Anything-V2-Small-hf"
 MODELO_OWL = "google/owlv2-base-patch16-ensemble"
 URL_HF = "https://huggingface.co/"
@@ -59,6 +61,8 @@ def dispositivo() -> str:
     """``"mps"`` en Apple Silicon si está disponible; si no, ``"cpu"``."""
     import torch
 
+    if HAY_ZEROGPU:  # ZeroGPU: .to("cuda") al cargar; la GPU se asigna en cada @spaces.GPU
+        return "cuda"
     if torch.backends.mps.is_available():
         return "mps"
     if torch.cuda.is_available():
@@ -289,3 +293,27 @@ def comparar_clasico_vs_owl(mascara_clasica: np.ndarray | None, ms_clasico: floa
             if qc is not None and qo is not None:
                 dcm = float(np.linalg.norm(np.asarray(qc)[:2] - np.asarray(qo)[:2]))
     return Comparacion(iou, dpx, dcm, ms_clasico, owl.ms, cc, co)
+
+
+# =========================================================================== #
+# Inferencia con GPU bajo demanda (ZeroGPU) — usar estas funciones desde la UI y el juego
+# =========================================================================== #
+
+
+@gpu(duracion=20)
+def estimar_profundidad(img_bgr: np.ndarray) -> ResultadoProfundidad:
+    """Depth Anything sobre una imagen. En ZeroGPU pide la GPU solo durante la llamada."""
+    return obtener_profundidad().estimar(img_bgr)
+
+
+@gpu(duracion=30)
+def detectar_manos(img_bgr: np.ndarray, textos: tuple[str, ...] = ("a hand",), umbral: float = 0.2,
+                   zona: np.ndarray | None = None) -> ResultadoOWL:
+    """OWLv2 sobre una imagen. En ZeroGPU pide la GPU solo durante la llamada."""
+    return obtener_owl().detectar(img_bgr, textos, umbral, zona)
+
+
+def precargar_modelos() -> None:
+    """Descarga y carga ambos modelos al arrancar (recomendado en ZeroGPU: carga global, no dentro de la GPU)."""
+    obtener_profundidad()
+    obtener_owl()
