@@ -103,8 +103,7 @@ class Juego:
         self.config = pl.ConfigPipeline(usar_calibracion=op.calibrado and self.modelo_camara is not None)
         self.estado_pipe = pl.EstadoPipeline()
         self.jugadores = {lado: EstadoJugador() for lado in self.lados}
-        self.partida = Partida(IARival.con_dificultad(op.dificultad, op.semilla), puntos_para_ganar=op.puntos,
-                               modo=op.modo)
+        self.partida = self._crear_partida()
         self.fase = "calibrar_piel"
         self.pantalla = "menu" if op.menu else "juego"  # menu, ajustes o juego
         self.pausado = False
@@ -175,12 +174,21 @@ class Juego:
         self.lados = (-1,) if self.op.modo == "ia" else (-1, 1)
         viejos = getattr(self, "jugadores", {})
         self.jugadores = {lado: EstadoJugador(piel=viejos[lado].piel if lado in viejos else None) for lado in self.lados}
-        self.partida = Partida(IARival.con_dificultad(self.op.dificultad, self.op.semilla),
-                               puntos_para_ganar=self.op.puntos, modo=self.op.modo)
+        self.partida = self._crear_partida()
         if self.sintetico and len(self.fuente.jugadores) > 1:
             self.fuente.jugadores[1].mano_visible = self.op.modo == "2j"
         self.fase = "jugando" if all(j.piel is not None for j in self.jugadores.values()) else "calibrar_piel"
         self.pantalla, self.pausado, self.t_cuenta = "juego", False, None
+
+    def _crear_partida(self) -> Partida:
+        partida = Partida(IARival.con_dificultad(self.op.dificultad, self.op.semilla),
+                          puntos_para_ganar=self.op.puntos, modo=self.op.modo)
+        if self.op.interfaz == "web":
+            # En línea cada frame viaja al servidor y vuelve (200-400 ms): balón más lento y más alcance
+            partida.p.gravedad = 60.0
+            partida.alcance = 3.4
+            partida.ia.velocidad *= 0.8
+        return partida
 
     def accion(self, accion: str) -> bool:
         """Ejecuta una opción de menú. Devuelve False para salir del juego."""

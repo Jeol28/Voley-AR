@@ -6,6 +6,8 @@ la cámara del navegador y el mismo ``Juego.paso`` que la versión de escritorio
 
 from __future__ import annotations
 
+import time
+
 import gradio as gr
 import numpy as np
 
@@ -27,8 +29,9 @@ def _opciones_vista():
 
 OPCIONES_VISTA = _opciones_vista()
 AJUSTES_INICIALES = {"dificultad": "normal", "puntos": 15, "usar_calibracion": True}
-CAMARA_JUEGO = gr.WebcamOptions(mirror=False, constraints={"video": {"width": {"ideal": 960},
-                                                                   "height": {"ideal": 540}}})
+# 640×360: en el servidor el frame cuesta menos de la mitad que a 960 y cada subida pesa la mitad
+CAMARA_JUEGO = gr.WebcamOptions(mirror=False, constraints={"video": {"width": {"ideal": 640},
+                                                                   "height": {"ideal": 360}}})
 CAMARA_CALIBRAR = gr.WebcamOptions(mirror=False, constraints={"video": {"width": {"ideal": 1280},
                                                                       "height": {"ideal": 720}}})
 
@@ -132,8 +135,19 @@ def jugar_frame(img_rgb, juego, modo: str, ajustes: dict):
     if juego.modelo_camara is None and ESTADO.modelo_camara is not None:
         juego.modelo_camara = ESTADO.modelo_camara
     _aplicar_ajustes(juego, ajustes)
+    t0 = time.perf_counter()
     out = paso_navegador(juego, vis.rgb_a_bgr(np.asarray(img_rgb)))
+    _registrar_rendimiento(juego, (time.perf_counter() - t0) * 1000, np.asarray(img_rgb).shape)
     return (gr.skip() if out is None else vis.bgr_a_rgb(out)), juego
+
+
+def _registrar_rendimiento(juego, ms: float, forma) -> None:
+    """Cada 100 frames deja en el log el tiempo de proceso y los FPS que llegan (para medir el Space)."""
+    juego._ms_frames = getattr(juego, "_ms_frames", []) + [ms]
+    if len(juego._ms_frames) >= 100:
+        print(f"[rendimiento] {forma[1]}x{forma[0]} · proceso {np.mean(juego._ms_frames):.0f} ms/frame · "
+              f"llegan {juego.fps:.1f} FPS · vista {juego.vista}", flush=True)
+        juego._ms_frames = []
 
 
 def accion(nombre: str):
@@ -288,7 +302,8 @@ def construir(demo: gr.Blocks) -> None:
                     b_menos = gr.Button("−", scale=1, min_width=60)
                     b_mas = gr.Button("+", scale=1, min_width=60)
                 param = gr.Markdown(elem_classes="nota")
-                pantalla = gr.Image(label="Voley AR", height=600, show_label=False)
+                # JPEG: ~1 ms de codificación y ~30 KB por frame (WebP tardaba ~30 ms)
+                pantalla = gr.Image(label="Voley AR", height=600, show_label=False, format="jpeg")
 
     pantallas = [p_inicio, p_como, p_aj, p_cal, p_juego]
     vista.change(elegir_vista, [juego, vista], [juego, param])
@@ -305,7 +320,7 @@ def construir(demo: gr.Blocks) -> None:
     b_ia.click(con_sesion(lambda j, a: empezar(j, "ia", a)), [S, juego, ajustes], [S, juego, modo, *pantallas])
     b_2j.click(con_sesion(lambda j, a: empezar(j, "2j", a)), [S, juego, ajustes], [S, juego, modo, *pantallas])
 
-    camara.stream(con_sesion(jugar_frame), [S, camara, juego, modo, ajustes], [S, pantalla, juego], stream_every=0.1,
+    camara.stream(con_sesion(jugar_frame), [S, camara, juego, modo, ajustes], [S, pantalla, juego], stream_every=0.05,
                   concurrency_limit=CONCURRENCIA_VIVO, trigger_mode="always_last", show_progress="hidden")
     for b, nombre in ((b_listo, "listo"), (b_pausa, "pausa"), (b_reini, "reiniciar"), (b_revancha, "revancha"),
                       (b_piel, "piel")):
