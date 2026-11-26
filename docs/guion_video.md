@@ -3,111 +3,103 @@
 **Voley AR – Proyecto final de Visión Artificial · Jorge Enrique Olaya Liévano**
 
 Preparación antes de grabar:
-- Imprime `cancha.pdf` y `tablero.pdf` al 100 %. Ten a mano el tablero pegado en cartón y una regla.
+- Imprime `tablero.pdf` al 100 % y pégalo en cartón. Ten una regla a mano.
+- Consigue un segundo jugador para la partida de dos (o usa el modo contra la IA).
+- Buena luz blanca y mangas largas oscuras.
 - Deja abiertos en VS Code los archivos que se van a mostrar (lista en cada bloque).
-- Ten la UI corriendo (`python app.py`) y el juego listo para lanzar (`python jugar.py`).
-- Graba la pantalla y una toma de la mesa si puedes (con el celular, desde arriba).
+- Ten la UI corriendo (`python app.py`) y el juego listo (`python jugar.py --modo 2j`).
 
 ---
 
 ## 0:00-0:40 · Introducción
 
-**En pantalla:** la cancha impresa sobre la mesa y el juego corriendo unos segundos.
+**En pantalla:** unos segundos de partida de dos jugadores, cada uno en su mitad.
 
-> "Este es Voley AR: un minijuego de voleibol en realidad aumentada sobre la mesa. La cámara reconoce esta cancha
-> impresa por sus marcadores ArUco y dibuja encima la red y un balón en 3D. Juego con mi mano, sin ningún objeto,
-> contra una IA. La idea central es que la calibración de la cámara es indispensable, y que cada tema del curso
-> cumple una función real en el juego."
+> "Este es Voley AR: voleibol en realidad aumentada para dos jugadores frente a una sola cámara web. No hay nada
+> impreso ni ningún objeto: la cancha, la red y el balón se dibujan en la pantalla y lo único real son nuestras manos.
+> Cada tema del curso cumple una función en el juego, y la calibración de la cámara es la que une lo real con lo
+> virtual."
 
 ## 0:40-1:40 · Arquitectura
 
-**En pantalla:** README en GitHub, sección *Arquitectura* (diagrama de capas y del pipeline) y la estructura de carpetas.
+**En pantalla:** README → *Arquitectura* (diagrama de capas y del pipeline) y la estructura de carpetas.
 
-> "El código está en capas. `core` tiene un módulo por tema, todos como funciones puras: entra una imagen y salen
-> una imagen o datos. `juego` tiene la física, la IA y el render. La UI de Gradio y la ventana del juego son dos
-> presentaciones del mismo pipeline: `core/pipeline.py`, función `procesar_frame`."
+> "El código está en capas. `core` tiene un módulo por tema, todos como funciones puras. `juego` tiene la física, las
+> reglas y el render. La UI de Gradio, la ventana de OpenCV y el juego en el navegador son tres presentaciones del mismo
+> pipeline: `core/pipeline.py`, función `procesar_frame`, que procesa una mano por cada mitad de la imagen."
 
-- Mostrar `voleyar/core/pipeline.py` → `procesar_frame` (recorrer las etapas con el cursor).
-- Mencionar la estrategia de ramas: diagrama `gitGraph` del README y `git log --graph --oneline` en la terminal
-  (main, develop, una rama `feature/` por tema, merges `--no-ff`, tag `v1.0.0`).
+- Mostrar `voleyar/core/pipeline.py` → `procesar_frame` y `_procesar_mano`.
+- Mostrar la estrategia de ramas: diagrama `gitGraph` y `git log --graph --oneline` (ramas `feature/` por tema, merges
+  `--no-ff`, tags v1.0.0, v1.1.0 y v2.0.0, y la rama `feature/multijugador`).
 
 ## 1:40-3:00 · Calibración en vivo con el tablero
 
-**En pantalla:** terminal con `python scripts/calibrar_camara.py --cuadro 2.5`.
+**En pantalla:** `python scripts/calibrar_camara.py --cuadro 2.5`.
 
-1. Medir el cuadro del tablero con la regla frente a la cámara (25 mm).
-2. Mover el tablero: mostrar el aviso "Tablero detectado", el contador de vistas y la sugerencia ("inclina el
-   tablero…", "llévalo a la esquina…"). Activar la captura automática con `A`.
-3. Pulsar `C`: mostrar `K`, los coeficientes de distorsión y el **error de reproyección** (< 0.5 px), y la ventana
-   original vs. sin distorsión.
+1. Medir el cuadro con la regla frente a la cámara.
+2. Mover el tablero: el aviso "Tablero detectado", el contador de vistas y la sugerencia. Activar la captura
+   automática con `A`.
+3. Pulsar `C`: mostrar `K`, la distorsión, el **error de reproyección** (< 0.5 px) y la ventana sin distorsión.
 
-> "La calibración de Zhang usa varias vistas del tablero plano para despejar la matriz K y la distorsión. Por eso se
-> piden ángulos variados: vistas paralelas no dicen nada sobre la focal."
-
-**Código a mostrar:** `voleyar/core/calibracion.py` → docstring del módulo (pinhole, intrínsecos/extrínsecos,
-distorsión), `calibrar_camara`, `GestorCapturaCalibracion.sugerencia`, `estimar_pose_cancha` y `pixel_a_mesa`.
+**Código a mostrar:** `voleyar/core/calibracion.py` → docstring (pinhole, intrínsecos/extrínsecos, distorsión),
+`calibrar_camara`, `camara_virtual` y `distancia_por_tamano`.
 
 ## 3:00-3:50 · Con calibración vs. sin calibración
 
-**En pantalla:** UI → pestaña **Calibración → Cancha: con y sin calibración**, con la cámara en vivo sobre la cancha.
+**En pantalla:** UI → **Calibración → Distancia de la mano: con y sin calibración**, con la cámara en vivo y la mano
+abierta.
 
-1. Modo *Ambos*: el contorno naranja (calibrado) cae sobre las líneas impresas; el blanco (sin calibrar) se corre,
-   sobre todo el borde de la red y el balón, que tienen altura.
-2. Señalar la tabla con el error de reproyección de las esquinas ArUco en ambos modos.
-3. Subir el slider de altura del balón: la diferencia crece con la altura.
+> "Sin cancha impresa, ¿para qué la calibración? Para tres cosas: corregir la distorsión, construir la cámara virtual
+> con la que se dibuja la cancha y, sobre todo, medir a qué distancia está cada mano: Z = f por el tamaño de la palma
+> dividido por su tamaño en píxeles. Con la K calibrada la mano está a unos 60 cm; con la K aproximada el juego cree
+> que está a más de 75. Por eso un golpe solo vale si la mano está en su plano de juego."
 
-> "Sin calibrar, solvePnP compensa la K equivocada con una pose falsa: lo plano casi encaja, pero lo que tiene
-> altura flota. Por eso el juego necesita la K de mi cámara."
+- Mostrar la escena de ejemplo (56/61 cm frente a 77/83 cm, con reales de 60/64) y luego tu mano en vivo.
+- Mencionar la subpestaña **Pose con ArUco (demo de la v1)**: `solvePnP` sigue en el código.
 
 ## 3:50-6:30 · Recorrido por los temas (código + UI)
 
-Por cada tema: unos 20-25 s en la UI y unos 5-10 s en el código.
-
-| Tiempo | Pestaña de la UI | Qué mostrar | Archivo / función |
+| Tiempo | Pestaña | Qué mostrar | Archivo / función |
 |---|---|---|---|
-| 3:50 | **Filtros** | Ejemplo *Poca luz*: subir el ruido, comparar gaussiano/mediana/bilateral (tabla de ruido antes/después); Sobel y Canny; escribir un núcleo propio y ver "Diferencia máxima manual vs. filter2D ≈ 1e-6". | `core/filtros.py` → `convolucion_manual` (por qué se voltea el núcleo) |
-| 4:15 | **Histogramas** | Mover el recuadro sobre la palma, ver los histogramas H-S y Cr-Cb y la retroproyección; pulsar "Usar este recuadro como modelo de piel". Ecualización vs. CLAHE con sus histogramas. | `core/histogramas.py` → `calibrar_piel`, `retroproyeccion`, `aplicar_clahe` |
-| 4:40 | **Umbralización** | Rangos HSV vs. YCrCb (tabla de IoU), curva de varianza entre clases con T*, "Otsu manual = OpenCV: coinciden", adaptativo. | `core/umbralizacion.py` → `otsu_manual` |
-| 5:00 | **Morfología** | Ruido sal y pimienta; apertura (componentes: miles → 1); cierre; mosaico de las 5 operaciones; cambiar forma/tamaño del elemento. | `core/morfologia.py` → `limpiar_mascara`, `erosion_manual` |
-| 5:20 | **Segmentación** | Ejemplo *Mano tocando un objeto color piel*: zona por la pose, contornos, corte por la muñeca en la vista cenital, transformada de distancia y watershed separando la mano del objeto. | `core/segmentacion.py` → `zona_busqueda`, `separar_mano_brazo`, `watershed_mano` |
-| 5:45 | **Caracterización** | Ejemplos *Un dedo*, *Dos dedos*, *Puño*: casco convexo, valles, puntas, tabla de descriptores (cm², Hu) y gesto → golpe. Con la cámara en vivo, mostrar la velocidad. | `core/caracterizacion.py` → `analizar_mano`, `descriptores_forma` |
-| 6:10 | **Pipeline** | Los 9 pasos sobre el mismo frame y la tabla de tiempos (~10-15 ms). | `core/pipeline.py` |
+| 3:50 | **Filtros** | Ejemplo *Poca luz*: ruido, gaussiano/mediana/bilateral, Sobel y Canny; un núcleo propio con "Diferencia máxima ≈ 1e-6". | `core/filtros.py` → `convolucion_manual` |
+| 4:15 | **Histogramas** | Recuadro sobre la palma del jugador 1, histogramas H-S y Cr-Cb, retroproyección; "¿De quién es esta piel?" → Jugador 1, luego Jugador 2. CLAHE. | `core/histogramas.py` → `calibrar_piel`, `retroproyeccion` |
+| 4:40 | **Umbralización** | Mitad de cada jugador: rangos HSV vs. YCrCb, curva de Otsu con T*, "coinciden", adaptativo y tabla de IoU. | `core/umbralizacion.py` → `otsu_manual` |
+| 5:00 | **Morfología** | Ruido sal y pimienta → apertura (miles de componentes → pocas), cierre, las 5 operaciones. | `core/morfologia.py` → `limpiar_mascara` |
+| 5:20 | **Segmentación** | Ejemplo *Mano delante de la cara*: mitades, cara de Haar, contorno elegido, corte por la muñeca y watershed separando la mano de la cara. | `core/segmentacion.py` → `detectar_caras`, `separar_de_la_cara`, `separar_mano_brazo` |
+| 5:45 | **Caracterización** | Jugador 1 y 2: casco convexo, valles, puntas, descriptores (cm² con Z/f) y gesto → golpe. | `core/caracterizacion.py` → `analizar_mano` |
+| 6:10 | **Pipeline** | Los 9 pasos sobre el mismo frame y la tabla de tiempos. | `core/pipeline.py` |
 
 ## 6:30-7:30 · Transformers: clásico vs. OWLv2 y profundidad
 
-**En pantalla:** UI → pestaña **Transformers**, con la cámara en vivo.
+**En pantalla:** UI → **Transformers**, con la cámara en vivo y los dos jugadores.
 
-1. Depth Anything: mapa de profundidad y puntaje de altura. Apoyar la mano (verde, "golpe válido") y levantarla
-   (rojo, "mano levantada").
-2. Comparación sobre el mismo frame: caja clásica (naranja) vs. OWLv2 (verde), tabla de latencias (~12 ms vs.
-   ~500 ms), IoU y diferencia en cm.
+1. Depth Anything: mapa de profundidad y, por jugador, "mano delante del cuerpo: golpe válido".
+2. Comparación por mitad: cajas clásicas (naranja) vs. OWLv2 (verde), latencias (~25 ms vs. ~500 ms), IoU y
+   diferencia en cm.
 
-> "Uso los transformers solo en inferencia, con pesos públicos. Depth Anything es lento por frame, así que en el juego
-> corre en un hilo aparte cada 8 frames: la altura de la mano cambia más despacio que su posición. OWLv2 no necesita
-> calibrar la piel, pero es unas 40 veces más lento; por eso el detector principal es el clásico."
+**Código a mostrar:** `core/transformers_models.py` → `mano_delante_de_la_cara` y `estimar_profundidad` (decorador
+`gpu` de `voleyar/entorno.py` para ZeroGPU).
 
-**Código a mostrar:** `core/transformers_models.py` → `mano_cerca_de_mesa` (la fórmula del puntaje) y
-`DetectorManoOWL.detectar`; `juego/asincrono.py` → `TrabajadorAsincrono`.
+## 7:30-9:30 · Partida de dos jugadores con el panel de depuración
 
-## 7:30-9:30 · Partida con el panel de depuración
+**En pantalla:** `python jugar.py --modo 2j`.
 
-**En pantalla:** `python jugar.py` (o el botón de la pestaña **Jugar**).
+1. Calibración de la piel: cada jugador cubre su recuadro naranja y se pulsa `ESPACIO`.
+2. Señalar arriba de cada mitad "midiendo…" → "plano a 60 cm" (la distancia de referencia de cada jugador).
+3. Activar `D`: máscaras (mano blanca, brazo naranja, caras rojas), retroproyección de cada jugador, profundidad,
+   distancias y tiempos.
+4. Jugar un par de puntos: un **remate** con la mano abierta, un **toque** con un dedo. Mostrar un golpe inválido
+   acercando mucho la mano a la cámara (punto rojo).
+5. Pulsar `C`: sin calibración la distancia medida cambia y los golpes empiezan a salir inválidos. Volver a `C`.
+6. Mostrar 20 s del juego en el Space (pestaña **Jugar → En el navegador**).
 
-1. Calibración de la piel: cubrir el recuadro naranja y pulsar `ESPACIO`.
-2. Activar `D`: señalar la máscara de piel (brazo en naranja), la vista cenital con los dedos, el mapa de
-   profundidad, la pose (ejes), los FPS y los tiempos.
-3. Jugar un par de puntos: un **remate** con la mano abierta y un **toque** con un dedo; mostrar el anillo verde del
-   golpe válido y uno rojo levantando la mano.
-4. Pulsar `C` durante la partida: sin calibración la red y el balón se desalinean. Volver a pulsar `C`.
-5. Pulsar `O` unos segundos para jugar con OWLv2 y notar la latencia.
-
-**Código a mostrar (breve):** `juego/partida.py` → `_intentar_golpe` (rayo vs. balón y profundidad),
-`juego/render_ar.py` → `ocluir_con_mano`.
+**Código a mostrar (breve):** `juego/partida.py` → `_intentar_golpe` y `juego/bucle.py` → `_validar`.
 
 ## 9:30-10:00 · Cierre
 
-**En pantalla:** README → *Limitaciones* y *Pruebas* (`pytest` en verde en la terminal).
+**En pantalla:** README → *Limitaciones* y `pytest` en verde.
 
-> "Las pruebas usan escenas sintéticas de verdad conocida: la calibración recupera K, solvePnP la pose, Otsu y la
-> convolución coinciden con OpenCV, los descriptores con scikit-image, y los dedos se cuentan bien. Las limitaciones
-> principales son la luz, las mesas de madera y que la mano no tape todos los marcadores. Gracias."
+> "Las pruebas usan escenas sintéticas de verdad conocida: dos personas a distancias conocidas, caras detectables y
+> cámaras con distorsión. La calibración recupera K, la distancia de la mano sale con ±4 % de error calibrada y con
+> ~30 % sin calibrar. Las limitaciones principales son la luz, la ropa de color piel y que Haar detecta peor las caras
+> de piel oscura. Gracias."
