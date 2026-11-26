@@ -523,3 +523,62 @@ def comparar_modos(marcadores: dict[int, np.ndarray], modelo_calibrado: ModeloCa
         m = modelo_calibrado.escalar_a(ancho, alto)
         res["calibrado"] = (estimar_pose_cancha(marcadores, m), m)
     return res
+
+
+# =========================================================================== #
+# Vista cenital métrica (rectificación del plano de la mesa)
+# =========================================================================== #
+
+
+@dataclass
+class VistaCenital:
+    """Homografía imagen → vista desde arriba del plano ``Z = z`` (``ppcm`` px por cm).
+
+    Un punto de la mesa ``(X, Y)`` cae en el píxel ``u = (X - x_min)·ppcm``,
+    ``v = (y_max - Y)·ppcm`` de la vista cenital.
+    """
+
+    H: np.ndarray  # imagen → cenital
+    tam: tuple[int, int]
+    ppcm: float
+    x_min: float
+    y_max: float
+    z: float = 0.0
+
+    def a_mesa(self, uv) -> np.ndarray:
+        uv = np.asarray(uv, float).reshape(-1, 2)
+        return np.column_stack([uv[:, 0] / self.ppcm + self.x_min, self.y_max - uv[:, 1] / self.ppcm,
+                                np.full(len(uv), self.z)])
+
+    def a_imagen(self, uv) -> np.ndarray:
+        uv = np.asarray(uv, np.float64).reshape(-1, 1, 2)
+        return cv2.perspectiveTransform(uv, np.linalg.inv(self.H)).reshape(-1, 2)
+
+    def desde_imagen(self, px) -> np.ndarray:
+        px = np.asarray(px, np.float64).reshape(-1, 1, 2)
+        return cv2.perspectiveTransform(px, self.H).reshape(-1, 2)
+
+    def rectificar(self, img: np.ndarray, interpolacion: int = cv2.INTER_NEAREST) -> np.ndarray:
+        return cv2.warpPerspective(img, self.H, self.tam, flags=interpolacion)
+
+
+def vista_cenital(pose: Pose, modelo: ModeloCamara, ppcm: float = 10.0,
+                  limites: tuple[float, float, float, float] | None = None, z: float = 0.0) -> VistaCenital:
+    r"""Homografía que "endereza" el plano de la mesa a una vista desde arriba.
+
+    Para los puntos del plano :math:`Z = z`, el modelo pinhole se reduce a una
+    homografía :math:`\tilde p \sim K\,[r_1\;r_2\;(z\,r_3 + t)]\,(X, Y, 1)^T`. Su
+    inversa, compuesta con el cambio de escala a ``ppcm``, quita la perspectiva:
+    en la vista cenital los dedos tienen su largo real en cm sin importar la
+    inclinación de la cámara. Supone imagen sin distorsión (``modelo.dist = 0``,
+    p. ej. tras ``corregir_distorsion``).
+    """
+    if limites is None:
+        limites = (-cfg.MEDIO_LARGO - 2 - cfg.FRANJA_BRAZO_LARGO, cfg.MEDIO_LARGO + 2,
+                   -cfg.MEDIO_ANCHO - 5, cfg.MEDIO_ANCHO + 5)
+    x0, x1, y0, y1 = limites
+    R = pose.R
+    P = modelo.K @ np.column_stack([R[:, 0], R[:, 1], z * R[:, 2] + pose.tvec.reshape(3)])
+    A = np.array([[ppcm, 0, -x0 * ppcm], [0, -ppcm, y1 * ppcm], [0, 0, 1]])
+    H = A @ np.linalg.inv(P)
+    return VistaCenital(H / H[2, 2], (int(round((x1 - x0) * ppcm)), int(round((y1 - y0) * ppcm))), ppcm, x0, y1, z)
