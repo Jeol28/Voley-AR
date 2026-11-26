@@ -6,14 +6,11 @@ import gradio as gr
 
 from voleyar.entorno import EN_SPACE
 from voleyar.ui import juego_web
-from voleyar.ui.comunes import nueva_sesion_componente
 from voleyar.ui.tema import CSS, crear_tema
 
 
 def crear_app() -> gr.Blocks:
-    with gr.Blocks(title="Voley AR") as demo:
-        gr.Navbar(visible=False)
-        nueva_sesion_componente()
+    with gr.Blocks(title="Voley AR", theme=crear_tema(), css=CSS) as demo:
         juego_web.construir(demo)
     return demo
 
@@ -59,8 +56,7 @@ def lanzar(puerto: int = 7860, abrir: bool = True, compartir: bool = False) -> N
         precargar_modelos()
         medir_rendimiento()
         demo.queue(default_concurrency_limit=4)
-        demo.launch(theme=crear_tema(), css=CSS, footer_links=[])  # host y puerto los pone el Space
+        demo.launch(show_api=False)  # host y puerto los pone el Space
         return
     demo.queue(default_concurrency_limit=2)
-    demo.launch(server_name="127.0.0.1", server_port=puerto, inbrowser=abrir, share=compartir, theme=crear_tema(),
-                css=CSS, footer_links=[])
+    demo.launch(server_name="127.0.0.1", server_port=puerto, inbrowser=abrir, share=compartir, show_api=False)

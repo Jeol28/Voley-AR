@@ -8,8 +8,9 @@ matplotlib>=3.7
 torch>=2.1                   # usa MPS en Apple Silicon si está disponible
 transformers>=4.45
 
-# Interfaz
-gradio>=4.44
+# Interfaz: Gradio 5 + fastrtc (la cámara del navegador viaja como video por WebRTC, no como fotos)
+gradio>=5.30,<6
+fastrtc>=0.0.34
 
 # Imprimibles (PDF con medidas reales)
 reportlab>=4.0

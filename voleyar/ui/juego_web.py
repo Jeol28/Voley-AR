@@ -1,24 +1,38 @@
 """Interfaz web del juego (local y Space): pantallas como en un juego, sin pestañas.
 
-Inicio → (Cómo se juega | Ajustes | Calibrar cámara) → Partida. La partida usa
-la cámara del navegador y el mismo ``Juego.paso`` que la versión de escritorio.
+Inicio → (Cómo se juega | Ajustes | Calibrar cámara) → Partida.
+
+La cámara viaja como **video por WebRTC** (fastrtc), no como fotos: el navegador
+transmite un video continuo y comprimido, el servidor procesa cada frame con el
+mismo ``Juego.paso`` de la versión de escritorio y devuelve el video del juego
+por el mismo canal. Si el servidor se atrasa, se descartan los frames viejos
+(``skip_frames``) para que el retraso no se acumule.
 """
 
 from __future__ import annotations
 
+import os
 import time
+from contextlib import contextmanager
 
+import cv2
 import gradio as gr
 import numpy as np
+from fastrtc import VideoStreamHandler, WebRTC
 
+from voleyar.core import calibracion as cal
 from voleyar.core import config as cfg
 from voleyar.entorno import EN_SPACE
-from voleyar.ui.comunes import CONCURRENCIA_VIVO, sesion_componente
-from voleyar.ui.estado import ESTADO, con_sesion
 from voleyar.ui import calibracion_web as cal_ui
+from voleyar.ui import sesiones
+from voleyar.ui.estado import soltar_sesion, usar_sesion
 from voleyar.utils import visualizacion as vis
 
 PANTALLAS = ("inicio", "como", "ajustes", "calibrar", "juego")
+CONCURRENCIA_VIDEO = 8 if EN_SPACE else 2
+VIDEO_JUEGO = {"width": {"ideal": 640}, "height": {"ideal": 360}, "frameRate": {"ideal": 30}}
+VIDEO_CALIBRAR = {"width": {"ideal": 1280}, "height": {"ideal": 720}, "frameRate": {"ideal": 15}}
+ETIQUETAS = {"start": "Empezar", "stop": "Detener", "waiting": "Conectando…"}
 
 
 def _opciones_vista():
@@ -28,12 +42,6 @@ def _opciones_vista():
 
 
 OPCIONES_VISTA = _opciones_vista()
-AJUSTES_INICIALES = {"dificultad": "normal", "puntos": 15, "usar_calibracion": True}
-# 640×360: en el servidor el frame cuesta menos de la mitad que a 960 y cada subida pesa la mitad
-CAMARA_JUEGO = gr.WebcamOptions(mirror=False, constraints={"video": {"width": {"ideal": 640},
-                                                                   "height": {"ideal": 360}}})
-CAMARA_CALIBRAR = gr.WebcamOptions(mirror=False, constraints={"video": {"width": {"ideal": 1280},
-                                                                      "height": {"ideal": 720}}})
 
 HERO = """
 <div class="hero">
@@ -46,8 +54,8 @@ COMO_SE_JUEGA = """
 ### Prepárense
 1. Pongan la cámara frente a ustedes, a unos **50-75 cm**. **Jugador 1 a la izquierda, jugador 2 a la derecha**
    (o tú solo a la izquierda contra la IA). Buena luz y, si se puede, mangas largas oscuras.
-2. Al empezar aparece un **recuadro naranja** en la mitad de cada jugador: pongan la palma encima, a la distancia a la
-   que van a jugar, y pulsen **¡Listo!**. Así el juego aprende el color de su piel.
+2. Pulsen **Empezar** en el video. Aparece un **recuadro naranja** en la mitad de cada jugador: pongan la palma
+   encima, a la distancia a la que van a jugar, y pulsen **¡Listo!**. Así el juego aprende el color de su piel.
 
 ### Golpes
 | Mano | Golpe |
@@ -84,19 +92,66 @@ Calibrar la cámara le enseña al juego cómo es **tu** lente, para que la canch
 distancias salgan en centímetros reales. Se hace una sola vez.
 
 1. Descarga e imprime el tablero **al 100 %** (sin ajustar a la página) y pégalo sobre un cartón.
-2. Activa la cámara y muéstrale el tablero desde distintos ángulos: cerca, lejos, inclinado, en las esquinas.
+2. Pulsa **Empezar** en el video y muéstrale el tablero desde distintos ángulos: cerca, lejos, inclinado, en las
+   esquinas. Las vistas se guardan solas.
 3. Cuando la barra se llene, pulsa **Calibrar**.
 """
+
+
+
+
+# --------------------------------------------------------------------------- #
+# WebRTC: servidor TURN en Spaces
+# --------------------------------------------------------------------------- #
+
+
+def configuracion_rtc():
+    """En un Space el video necesita un servidor TURN (lo da Hugging Face con el token ``HF_TOKEN``).
+    En local la conexión es directa y no hace falta."""
+    if EN_SPACE and os.environ.get("HF_TOKEN"):
+        from fastrtc import get_cloudflare_turn_credentials_async
+
+        return get_cloudflare_turn_credentials_async
+    return None
+
+
+def configuracion_rtc_servidor():
+    if EN_SPACE and os.environ.get("HF_TOKEN"):
+        from fastrtc import get_cloudflare_turn_credentials
+
+        return get_cloudflare_turn_credentials(ttl=360_000)
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# Navegación
+# --------------------------------------------------------------------------- #
 
 
 def ir(destino: str):
     return tuple(gr.Column(visible=(p == destino)) for p in PANTALLAS)
 
 
-def chip_camara() -> str:
-    if ESTADO.modelo_camara is not None:
+@contextmanager
+def en_sesion(clave: str | None):
+    """Activa el estado de la sesión (calibración) para el código que usa ``ESTADO``."""
+    s = sesiones.obtener(clave)
+    _, token = usar_sesion(s.estado)
+    try:
+        yield s
+    finally:
+        soltar_sesion(token)
+
+
+def chip_camara(clave: str | None) -> str:
+    if sesiones.obtener(clave).estado.modelo_camara is not None:
         return '<p class="chip ok">● Cámara calibrada</p>'
     return '<p class="chip">● Cámara sin calibrar: el juego funciona, pero las distancias son aproximadas</p>'
+
+
+def abrir_pagina(clave: str | None):
+    clave = clave or sesiones.nueva_clave()
+    return clave, chip_camara(clave)
 
 
 # --------------------------------------------------------------------------- #
@@ -104,70 +159,66 @@ def chip_camara() -> str:
 # --------------------------------------------------------------------------- #
 
 
-def _aplicar_ajustes(juego, ajustes: dict) -> None:
-    juego.config.usar_calibracion = bool(ajustes.get("usar_calibracion")) and juego.modelo_camara is not None
-
-
-def empezar(juego, modo: str, ajustes: dict):
-    """Botón de modo en el inicio: crea la partida (o reinicia la existente, conservando la piel)."""
+def _preparar(s: sesiones.Sesion) -> None:
+    """Crea el juego de la sesión si no existe y le pasa la calibración y los ajustes."""
     from voleyar.juego.navegador import crear_juego_navegador
 
-    if juego is None:
-        juego = crear_juego_navegador(ESTADO.modelo_camara, modo, ajustes["dificultad"])
-        juego.op.puntos = int(ajustes["puntos"])
-        juego.nueva_partida()
-    else:
-        if juego.modelo_camara is None and ESTADO.modelo_camara is not None:
-            juego.modelo_camara = ESTADO.modelo_camara
-        juego.nueva_partida(modo, ajustes["dificultad"], int(ajustes["puntos"]))
-    _aplicar_ajustes(juego, ajustes)
-    return (juego, modo, *ir("juego"))
+    a = s.ajustes
+    if s.juego is None:
+        s.juego = crear_juego_navegador(s.estado.modelo_camara, s.modo, a["dificultad"])
+        s.juego.op.puntos = int(a["puntos"])
+        s.juego.nueva_partida()
+    j = s.juego
+    if j.modelo_camara is None and s.estado.modelo_camara is not None:
+        j.modelo_camara = s.estado.modelo_camara
+    j.config.usar_calibracion = bool(a["usar_calibracion"]) and j.modelo_camara is not None
 
 
-def jugar_frame(img_rgb, juego, modo: str, ajustes: dict):
-    """Un frame de la cámara del navegador → imagen del juego."""
+def empezar(clave: str, modo: str):
+    """Botón de modo en el inicio: partida nueva (si ya calibraron la piel, se conserva)."""
+    s = sesiones.obtener(clave)
+    with s.cerrojo:
+        s.modo = modo
+        if s.juego is None:
+            _preparar(s)
+        else:
+            a = s.ajustes
+            s.juego.nueva_partida(modo, a["dificultad"], int(a["puntos"]))
+            _preparar(s)
+    return ir("juego")
+
+
+def frame_juego(frame_bgr: np.ndarray, clave: str | None):
+    """Un frame del video de la cámara → un frame del video del juego (ambos BGR)."""
     from voleyar.juego.navegador import paso_navegador
 
-    if img_rgb is None:
-        return gr.skip(), juego
-    if juego is None:
-        juego, *_ = empezar(None, modo, ajustes)
-    if juego.modelo_camara is None and ESTADO.modelo_camara is not None:
-        juego.modelo_camara = ESTADO.modelo_camara
-    _aplicar_ajustes(juego, ajustes)
-    t0 = time.perf_counter()
-    out = paso_navegador(juego, vis.rgb_a_bgr(np.asarray(img_rgb)))
-    _registrar_rendimiento(juego, (time.perf_counter() - t0) * 1000, np.asarray(img_rgb).shape)
-    return (gr.skip() if out is None else vis.bgr_a_rgb(out)), juego
+    s = sesiones.obtener(clave)
+    with s.cerrojo:
+        _preparar(s)
+        t0 = time.perf_counter()
+        out = paso_navegador(s.juego, frame_bgr)
+        _registrar_rendimiento(s.juego, (time.perf_counter() - t0) * 1000, frame_bgr.shape)
+    return frame_bgr if out is None else out
 
 
 def _registrar_rendimiento(juego, ms: float, forma) -> None:
-    """Cada 100 frames deja en el log el tiempo de proceso y los FPS que llegan (para medir el Space)."""
+    """Cada 300 frames deja en el log el tiempo de proceso y los FPS que llegan (para medir el Space)."""
     juego._ms_frames = getattr(juego, "_ms_frames", []) + [ms]
-    if len(juego._ms_frames) >= 100:
-        print(f"[rendimiento] {forma[1]}x{forma[0]} · proceso {np.mean(juego._ms_frames):.0f} ms/frame · "
-              f"llegan {juego.fps:.1f} FPS · vista {juego.vista}", flush=True)
+    if len(juego._ms_frames) >= 300:
+        print(f"[rendimiento] video {forma[1]}x{forma[0]} · proceso {np.mean(juego._ms_frames):.0f} ms/frame · "
+              f"{juego.fps:.1f} FPS · vista {juego.vista}", flush=True)
         juego._ms_frames = []
 
 
 def accion(nombre: str):
-    def manejador(juego):
-        if juego is not None:
-            juego.accion(nombre)
-        return juego
+    def manejador(clave: str):
+        s = sesiones.obtener(clave)
+        with s.cerrojo:
+            if s.juego is not None:
+                s.juego.accion(nombre)
 
     manejador.__name__ = f"accion_{nombre}"
     return manejador
-
-
-def guardar_ajustes(dificultad: str, puntos: int, usar_cal: bool):
-    return {"dificultad": dificultad, "puntos": int(puntos), "usar_calibracion": bool(usar_cal)}
-
-
-def elegir_vista(juego, vista: str):
-    if juego is not None:
-        juego.vista = vista
-    return juego, _texto_param(juego, vista)
 
 
 def _texto_param(juego, vista: str) -> str:
@@ -178,37 +229,102 @@ def _texto_param(juego, vista: str) -> str:
     return f"{QUE_HACE[vista]}  \n**−/+ cambia** {texto_parametro(juego, vista)}"
 
 
+def elegir_vista(clave: str, vista: str) -> str:
+    s = sesiones.obtener(clave)
+    with s.cerrojo:
+        if s.juego is not None:
+            s.juego.vista = vista
+        return _texto_param(s.juego, vista)
+
+
 def cambiar(paso: int):
-    def manejador(juego, vista: str):
+    def manejador(clave: str, vista: str) -> str:
         from voleyar.juego.vistas import cambiar_parametro
 
-        if juego is not None:
-            cambiar_parametro(juego, vista, paso)
-        return juego, _texto_param(juego, vista)
+        s = sesiones.obtener(clave)
+        with s.cerrojo:
+            if s.juego is not None:
+                cambiar_parametro(s.juego, vista, paso)
+            return _texto_param(s.juego, vista)
 
     manejador.__name__ = "parametro_mas" if paso > 0 else "parametro_menos"
     return manejador
 
 
+def guardar_ajustes(clave: str, dificultad: str, puntos: int, usar_cal: bool) -> None:
+    s = sesiones.obtener(clave)
+    s.ajustes = {"dificultad": dificultad, "puntos": int(puntos), "usar_calibracion": bool(usar_cal)}
+
+
+def volver_al_menu(clave: str):
+    s = sesiones.obtener(clave)
+    with s.cerrojo:
+        j = s.juego
+        if j is not None and not j.pausado and j.fase == "jugando":
+            j.pausado = True
+    return (chip_camara(clave), *ir("inicio"))
+
+
 # --------------------------------------------------------------------------- #
-# Calibración amigable
+# Calibración de la cámara por video
 # --------------------------------------------------------------------------- #
 
 
-def calibrar_amigable(gestor, cuadro_cm: float):
-    res, md, grafica, comp, js = cal_ui.calibrar(gestor, cuadro_cm)
+def frame_calibracion(frame_bgr: np.ndarray, clave: str | None):
+    """Busca el tablero en cada frame del video y guarda solas las vistas nuevas."""
+    s = sesiones.obtener(clave)
+    h, w = frame_bgr.shape[:2]
+    with s.cerrojo:
+        if s.gestor is None or s.gestor.tam_imagen != (w, h):
+            s.gestor = cal_ui.nuevo_gestor((w, h))
+        ok, pts = cal.detectar_tablero(frame_bgr, rapido=True)
+        vista = frame_bgr.copy()
+        if ok:
+            cv2.drawChessboardCorners(vista, cfg.TABLERO_ESQUINAS, pts, True)
+            s.gestor.agregar(pts)
+        s.ultimo_tablero = ok
+        for v in s.gestor.vistas:
+            for p in v.reshape(-1, 2)[::6]:
+                cv2.circle(vista, tuple(np.int32(p)), 3, vis.BGR_NARANJA, -1)
+        n = len(s.gestor.vistas)
+    barra = int(w * min(1.0, n / s.gestor.objetivo))
+    cv2.rectangle(vista, (0, h - 10), (barra, h), vis.BGR_NARANJA, -1)
+    return vista
+
+
+def progreso_calibracion(clave: str) -> str:
+    s = sesiones.obtener(clave)
+    return cal_ui.estado_md(s.gestor, s.ultimo_tablero)
+
+
+def reiniciar_calibracion(clave: str) -> str:
+    s = sesiones.obtener(clave)
+    with s.cerrojo:
+        s.gestor = None
+    return cal_ui.estado_md(None)
+
+
+def calibrar_amigable(clave: str, cuadro_cm: float):
+    s = sesiones.obtener(clave)
+    with s.cerrojo:
+        res, md, grafica, comp, js = cal_ui.calibrar(s.gestor, cuadro_cm)
+    s.resultado = res
     if res is None:
-        return None, f"**{md}**", None, None
+        return f"**{md}**", None, None
     m = res.modelo
     calidad = "excelente" if m.error_rms < 0.3 else ("buena" if m.error_rms < 0.6 else "regular (prueba con más vistas)")
     texto = (f"### Calibración {calidad}\n\nError promedio de **{m.error_rms:.2f} px** con {m.n_vistas} vistas. "
              "Pulsa **Usar esta calibración** para jugar con ella.")
-    return res, texto, md, grafica
+    return texto, md, grafica
 
 
-def usar_calibracion(res):
-    texto, ruta = cal_ui.guardar(res)
-    return texto, ruta, chip_camara()
+def usar_calibracion(clave: str):
+    with en_sesion(clave) as s:
+        texto, ruta = cal_ui.guardar(getattr(s, "resultado", None))
+        if s.juego is not None:
+            with s.cerrojo:
+                s.juego.modelo_camara = s.estado.modelo_camara
+    return texto, ruta, chip_camara(clave)
 
 
 # --------------------------------------------------------------------------- #
@@ -217,10 +333,7 @@ def usar_calibracion(res):
 
 
 def construir(demo: gr.Blocks) -> None:
-    S = sesion_componente()
-    juego = gr.State(None)
-    modo = gr.State("2j")
-    ajustes = gr.State(dict(AJUSTES_INICIALES))
+    clave = gr.State(None)
 
     # ---------------------------------------------------------------- inicio
     with gr.Column(visible=True, elem_classes="pantalla") as p_inicio:
@@ -232,7 +345,7 @@ def construir(demo: gr.Blocks) -> None:
             b_como = gr.Button("Cómo se juega", elem_classes="boton-medio")
             b_aj = gr.Button("Ajustes", elem_classes="boton-medio")
             b_cal = gr.Button("Calibrar cámara", elem_classes="boton-medio")
-        chip = gr.HTML(chip_camara())
+        chip = gr.HTML()
 
     # ---------------------------------------------------------- cómo se juega
     with gr.Column(visible=False, elem_classes="pantalla") as p_como:
@@ -253,16 +366,13 @@ def construir(demo: gr.Blocks) -> None:
     # ------------------------------------------------------- calibrar cámara
     with gr.Column(visible=False, elem_classes="pantalla") as p_cal:
         gr.Markdown("## Calibrar la cámara")
-        gestor = gr.State(None)
-        ultimo = gr.State(None)
-        resultado = gr.State(None)
         with gr.Row():
             with gr.Column(scale=5):
                 gr.Markdown(CALIBRAR_INTRO)
                 gr.DownloadButton("Descargar el tablero (PDF)", value=str(cfg.RUTA_IMPRIMIBLES / "tablero.pdf"))
                 cuadro = gr.Number(value=cfg.TABLERO_CUADRO_CM, label="Lado de un cuadro medido con regla (cm)",
                                    precision=3)
-                progreso = gr.Markdown(cal_ui.estado_md(None), latex_delimiters=[])
+                progreso = gr.Markdown(cal_ui.estado_md(None))
                 with gr.Row():
                     b_calibrar = gr.Button("Calibrar", variant="primary")
                     b_reiniciar_cal = gr.Button("Empezar de nuevo")
@@ -276,18 +386,18 @@ def construir(demo: gr.Blocks) -> None:
                     detalles = gr.Markdown(latex_delimiters=[{"left": "$", "right": "$", "display": False}])
                     grafica = gr.Image(label="Error por vista", height=220)
             with gr.Column(scale=6):
-                cam_cal = gr.Image(sources=["webcam"], streaming=True, type="numpy", label="Tu cámara",
-                                   webcam_options=CAMARA_CALIBRAR, height=300)
-                vista_cal = gr.Image(label="Tablero detectado", height=300)
+                video_cal = WebRTC(label="Tu cámara", mode="send-receive", modality="video", mirror_webcam=False,
+                                   track_constraints=VIDEO_CALIBRAR, rtc_configuration=configuracion_rtc(),
+                                   server_rtc_configuration=configuracion_rtc_servidor(), height=420,
+                                   full_screen=False, button_labels=ETIQUETAS)
+        reloj = gr.Timer(1.0)
 
     # ---------------------------------------------------------------- partida
     with gr.Column(visible=False, elem_classes="pantalla-juego") as p_juego:
         with gr.Row():
             with gr.Column(scale=3, min_width=260):
-                gr.Markdown("**1.** Activa la cámara y pulsa grabar.  \n**2.** Palma sobre tu recuadro y **¡Listo!**",
+                gr.Markdown("**1.** Pulsa **Empezar** en el video.  \n**2.** Palma sobre tu recuadro y **¡Listo!**",
                             elem_classes="nota")
-                camara = gr.Image(sources=["webcam"], streaming=True, type="numpy", label="Tu cámara",
-                                  webcam_options=CAMARA_JUEGO, height=200)
                 b_listo = gr.Button("¡Listo!", variant="primary", elem_classes="boton-medio")
                 with gr.Row():
                     b_pausa = gr.Button("Pausa / Seguir")
@@ -296,48 +406,43 @@ def construir(demo: gr.Blocks) -> None:
                     b_revancha = gr.Button("Revancha")
                     b_piel = gr.Button("Recalibrar piel")
                 b_menu = gr.Button("Menú principal")
-            with gr.Column(scale=9):
-                with gr.Row(equal_height=True):
-                    vista = gr.Dropdown(OPCIONES_VISTA, value="juego", label="¿Qué quieres ver?", scale=4)
-                    b_menos = gr.Button("−", scale=1, min_width=60)
-                    b_mas = gr.Button("+", scale=1, min_width=60)
+                vista = gr.Dropdown(OPCIONES_VISTA, value="juego", label="¿Qué quieres ver?")
+                with gr.Row():
+                    b_menos = gr.Button("−", min_width=60)
+                    b_mas = gr.Button("+", min_width=60)
                 param = gr.Markdown(elem_classes="nota")
-                # JPEG: ~1 ms de codificación y ~30 KB por frame (WebP tardaba ~30 ms)
-                pantalla = gr.Image(label="Voley AR", height=600, show_label=False, format="jpeg")
+            with gr.Column(scale=9):
+                video = WebRTC(label="Voley AR", mode="send-receive", modality="video", mirror_webcam=False,
+                               track_constraints=VIDEO_JUEGO, rtc_configuration=configuracion_rtc(),
+                               server_rtc_configuration=configuracion_rtc_servidor(), height=620,
+                               full_screen=False, button_labels=ETIQUETAS)
 
     pantallas = [p_inicio, p_como, p_aj, p_cal, p_juego]
-    vista.change(elegir_vista, [juego, vista], [juego, param])
-    b_menos.click(cambiar(-1), [juego, vista], [juego, param])
-    b_mas.click(cambiar(1), [juego, vista], [juego, param])
 
     # --------------------------------------------------------------- eventos
+    demo.load(abrir_pagina, clave, [clave, chip])
     b_como.click(lambda: ir("como"), None, pantallas)
     b_aj.click(lambda: ir("ajustes"), None, pantallas)
     b_cal.click(lambda: ir("calibrar"), None, pantallas)
     for b in (v1, v3):
-        b.click(con_sesion(lambda: (chip_camara(), *ir("inicio"))), [S], [S, chip, *pantallas])
-    v2.click(guardar_ajustes, [dificultad, puntos, usar_cal], ajustes).then(lambda: ir("inicio"), None, pantallas)
-    b_ia.click(con_sesion(lambda j, a: empezar(j, "ia", a)), [S, juego, ajustes], [S, juego, modo, *pantallas])
-    b_2j.click(con_sesion(lambda j, a: empezar(j, "2j", a)), [S, juego, ajustes], [S, juego, modo, *pantallas])
+        b.click(lambda c: (chip_camara(c), *ir("inicio")), clave, [chip, *pantallas])
+    v2.click(guardar_ajustes, [clave, dificultad, puntos, usar_cal], None).then(lambda: ir("inicio"), None, pantallas)
+    b_ia.click(lambda c: empezar(c, "ia"), clave, pantallas)
+    b_2j.click(lambda c: empezar(c, "2j"), clave, pantallas)
 
-    camara.stream(con_sesion(jugar_frame), [S, camara, juego, modo, ajustes], [S, pantalla, juego], stream_every=0.05,
-                  concurrency_limit=CONCURRENCIA_VIVO, trigger_mode="always_last", show_progress="hidden")
+    video.stream(VideoStreamHandler(frame_juego, fps=30, skip_frames=True), inputs=[video, clave], outputs=[video],
+                 concurrency_limit=CONCURRENCIA_VIDEO, send_input_on="submit")
     for b, nombre in ((b_listo, "listo"), (b_pausa, "pausa"), (b_reini, "reiniciar"), (b_revancha, "revancha"),
                       (b_piel, "piel")):
-        b.click(accion(nombre), juego, juego)
-    b_menu.click(con_sesion(lambda j: (_pausar(j), chip_camara(), *ir("inicio"))), [S, juego],
-                 [S, juego, chip, *pantallas])
+        b.click(accion(nombre), clave, None)
+    b_menu.click(volver_al_menu, clave, [chip, *pantallas])
+    vista.change(elegir_vista, [clave, vista], param)
+    b_menos.click(cambiar(-1), [clave, vista], param)
+    b_mas.click(cambiar(1), [clave, vista], param)
 
-    cam_cal.stream(cal_ui.procesar_vista_tablero, [cam_cal, gestor, gr.State(True)],
-                   [vista_cal, gestor, progreso, ultimo], stream_every=0.25, concurrency_limit=CONCURRENCIA_VIVO,
-                   trigger_mode="always_last", show_progress="hidden")
-    b_reiniciar_cal.click(lambda: (None, cal_ui.estado_md(None)), None, [gestor, progreso])
-    b_calibrar.click(calibrar_amigable, [gestor, cuadro], [resultado, resumen, detalles, grafica])
-    b_usar.click(con_sesion(usar_calibracion), [S, resultado], [S, guardado, archivo, chip])
-    demo.load(con_sesion(chip_camara), [S], [S, chip])
-
-
-def _pausar(juego):
-    if juego is not None and not juego.pausado and juego.fase == "jugando":
-        juego.pausado = True
-    return juego
+    video_cal.stream(VideoStreamHandler(frame_calibracion, fps=15, skip_frames=True), inputs=[video_cal, clave],
+                     outputs=[video_cal], concurrency_limit=CONCURRENCIA_VIDEO, send_input_on="submit")
+    reloj.tick(progreso_calibracion, clave, progreso, show_progress="hidden")
+    b_reiniciar_cal.click(reiniciar_calibracion, clave, progreso)
+    b_calibrar.click(calibrar_amigable, [clave, cuadro], [resumen, detalles, grafica])
+    b_usar.click(usar_calibracion, clave, [guardado, archivo, chip])
