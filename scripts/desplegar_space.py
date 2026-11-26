@@ -22,10 +22,11 @@ INCLUIR = ["app.py", "LICENSE", "voleyar", "scripts/generar_imprimibles.py", "sc
            "docs/imprimibles", "docs/capturas", "docs/arquitectura.md", "docs/guion_video.md"]
 
 NOTA_SPACE = """
-> **Versión en línea (Hugging Face Space con ZeroGPU).** Imprime la cancha (`docs/imprimibles/cancha.pdf`), calibra
-> tu cámara en la pestaña **Calibración** y juega en **Jugar → En el navegador**. La calibración y la piel son de tu
-> sesión: no se guardan en el servidor (descarga `camara.json` para usarlo en tu equipo). Depth Anything y OWLv2
-> piden la GPU solo cuando se usan. La versión de escritorio (`python jugar.py`) es más fluida.
+> **Versión en línea (Hugging Face Space con ZeroGPU).** No hay que imprimir nada: calibra tu cámara en la pestaña
+> **Calibración** y jueguen en **Jugar → En el navegador**, un jugador a cada lado de la imagen (o tú contra la IA). La
+> calibración y la piel son de tu sesión y no se guardan en el servidor (descarga `camara.json` para usarlo en tu
+> equipo). Depth Anything y OWLv2 piden la GPU solo cuando se usan. La versión de escritorio (`python jugar.py`) es
+> más fluida.
 """
 
 
