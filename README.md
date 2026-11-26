@@ -445,6 +445,10 @@ Ninguna necesita la cámara: usan escenas sintéticas de verdad conocida.
   centímetros vienen de la calibración.
 - **Resolución de la calibración.** `K` vale para la resolución y la relación de aspecto con que se calibró.
 - **OWLv2** va a unos 2 FPS: sirve para comparar, no para jugar.
+- **La versión en línea tiene retraso.** El servidor del Space procesa un frame en ~30 ms, pero cada frame va del
+  navegador a Hugging Face (EE. UU.) y vuelve como imagen: según la conexión son 200-400 ms de retraso. Para
+  compensarlo, en línea la cámara va a 640×360, la imagen vuelve en JPEG, el balón cae más lento y el golpe tiene más
+  alcance. Para jugar fluido, la versión de escritorio (`python jugar.py`) procesa todo en tu equipo, sin red.
 
 ## Estructura del repositorio
 
