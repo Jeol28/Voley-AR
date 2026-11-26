@@ -335,3 +335,102 @@ def hay_region_extra(mascara_mano: np.ndarray, info: InfoCorte, frac_grosor: flo
     cv2.circle(afuera, c, int(1.5 * info.radio_palma), 0, -1)
     dt = transformada_distancia(afuera)
     return bool(dt.max() > frac_grosor * info.radio_palma)
+
+
+# =========================================================================== #
+# Modo pantalla (v2): mitades por jugador y exclusión de caras
+# =========================================================================== #
+
+_cascada_caras: cv2.CascadeClassifier | None = None
+
+
+def detectar_caras(img_bgr: np.ndarray, ancho: int = 640, factor: float = 1.05,
+                   vecinos: int = 4) -> list[tuple[int, int, int, int]]:
+    """Caras frontales con el detector de Viola-Jones (cascada Haar de OpenCV).
+
+    Rasgos Haar (diferencias de sumas de rectángulos, calculadas con la imagen
+    integral) + AdaBoost + cascada de clasificadores que descarta rápido las
+    ventanas sin cara. Se ejecuta sobre una copia reducida para ir rápido y las
+    cajas se devuelven en coordenadas de la imagen original.
+    """
+    global _cascada_caras
+    if _cascada_caras is None:
+        _cascada_caras = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    h, w = img_bgr.shape[:2]
+    e = min(1.0, ancho / w)
+    gris = cv2.cvtColor(cv2.resize(img_bgr, None, fx=e, fy=e, interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2GRAY)
+    gris = cv2.equalizeHist(gris)
+    # Una persona por mitad y a menos de ~1.2 m: caras grandes. Filtra falsos positivos (p. ej. sobre la mano).
+    lado_min = max(24, int(0.20 * gris.shape[0]))
+    caras = _cascada_caras.detectMultiScale(gris, factor, vecinos, minSize=(lado_min, lado_min))
+    caras = [tuple(int(round(v / e)) for v in c) for c in (caras if len(caras) else [])]
+    mejor: dict[int, tuple[int, int, int, int]] = {}
+    for c in caras:
+        lado = -1 if c[0] + c[2] / 2 < w / 2 else 1
+        if lado not in mejor or c[2] * c[3] > mejor[lado][2] * mejor[lado][3]:
+            mejor[lado] = c
+    return [mejor[k] for k in sorted(mejor)]
+
+
+def mascara_caras(shape, caras, margen: float = 0.0, cuello: float = 0.8) -> np.ndarray:
+    """Máscara (255) del óvalo de cada cara y del cuello debajo: zona prohibida para la mano.
+
+    Sin margen a propósito: si la mano se acerca a la cara, ampliar la zona le
+    cortaría los dedos. Lo que quede pegado de la cara lo separa el watershed.
+    """
+    m = np.zeros(shape[:2], np.uint8)
+    for x, y, w, h in caras:
+        cx, cy = x + w / 2, y + h / 2
+        cv2.ellipse(m, (int(cx), int(cy)), (int(w * (0.42 + margen)), int(h * (0.55 + margen))), 0, 0, 360, 255, -1)
+        cv2.rectangle(m, (int(cx - 0.22 * w), int(cy)), (int(cx + 0.22 * w), int(y + h * (1 + cuello))), 255, -1)
+    return m
+
+
+def mascara_mitad(shape, lado: int, margen_red: int = 0) -> np.ndarray:
+    """Mitad izquierda (``lado = -1``, jugador 1) o derecha (``+1``, jugador 2) de la imagen."""
+    h, w = shape[:2]
+    m = np.zeros((h, w), np.uint8)
+    if lado < 0:
+        m[:, : max(0, w // 2 - margen_red)] = 255
+    else:
+        m[:, min(w, w // 2 + margen_red):] = 255
+    return m
+
+
+def franja_inferior(shape, fraccion: float = 0.04) -> np.ndarray:
+    """Borde inferior de la imagen: por ahí entra el antebrazo de cada jugador."""
+    h, w = shape[:2]
+    m = np.zeros((h, w), np.uint8)
+    m[int(h * (1 - fraccion)):, :] = 255
+    return m
+
+
+def separar_de_la_cara(img_bgr: np.ndarray, componente: np.ndarray, mascara_cara: np.ndarray,
+                       frac_pico: float = 0.5) -> tuple[np.ndarray, np.ndarray]:
+    """Separa la mano de la cara cuando se tocan en la imagen (watershed con marcadores).
+
+    Marcadores: fondo (1), el núcleo de la cara que encontró Haar (2) y los picos
+    de la transformada de distancia de lo que queda fuera de la cara (3, 4, …).
+    La inundación reparte la zona de contacto entre la cara y la mano siguiendo
+    los bordes de la imagen. Devuelve ``(mano, etiquetas)``.
+    """
+    comp_cara = cv2.bitwise_and(mascara_cara, componente)
+    if not comp_cara.any():
+        return componente.copy(), np.zeros(componente.shape, np.int32)
+    ee = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (15, 15))
+    nucleo = cv2.erode(comp_cara, ee)
+    resto = cv2.bitwise_and(componente, cv2.bitwise_not(cv2.dilate(mascara_cara, ee)))
+    marcadores = np.zeros(componente.shape, np.int32)
+    marcadores[cv2.dilate(componente, np.ones((3, 3), np.uint8), iterations=3) == 0] = 1
+    marcadores[nucleo > 0] = 2
+    if resto.any():
+        dt = transformada_distancia(resto)
+        semillas = np.uint8(dt > frac_pico * dt.max()) * 255
+        n, et = cv2.connectedComponents(semillas)
+        marcadores[et > 0] = et[et > 0] + 2
+    else:  # la mano está completamente sobre la cara: no hay de dónde sembrarla
+        return cv2.bitwise_and(componente, cv2.bitwise_not(nucleo)), marcadores
+    img = img_bgr if img_bgr.ndim == 3 else cv2.cvtColor(img_bgr, cv2.COLOR_GRAY2BGR)
+    etiquetas = cv2.watershed(img, marcadores.copy())
+    mano = cv2.bitwise_and(np.uint8(etiquetas >= 3) * 255, componente)
+    return mano, etiquetas

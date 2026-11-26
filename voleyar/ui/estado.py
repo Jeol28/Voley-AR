@@ -36,7 +36,7 @@ class Frame:
 @dataclass
 class EstadoApp:
     modelo_camara: cal.ModeloCamara | None = None
-    piel: his.ModeloPiel | None = None
+    pieles: dict = field(default_factory=lambda: {-1: None, 1: None})  # una por jugador (-1 izq., 1 der.)
     piel_origen: str = ""
     config: pl.ConfigPipeline = field(default_factory=pl.ConfigPipeline)
 
@@ -109,43 +109,50 @@ def con_sesion(fn):
 # --------------------------------------------------------------------------- #
 
 EJEMPLOS = {
-    "Mano abierta (remate)": dict(n_dedos=5, pos=(-6.0, 1.0), angulo=0),
-    "Un dedo (toque)": dict(n_dedos=1, pos=(-5.0, -2.0), angulo=10),
-    "Dos dedos": dict(n_dedos=2, pos=(-6.0, 2.0), angulo=-15),
-    "Puño (bloqueo)": dict(n_dedos=0, pos=(-7.0, 0.0), angulo=0),
-    "Mano tocando un objeto color piel": dict(n_dedos=3, pos=(-6.0, 0.0), angulo=0, objeto=True),
-    "Cancha sin mano": dict(sin_mano=True),
-    "Poca luz": dict(n_dedos=4, pos=(-6.0, 0.0), angulo=20, oscura=True),
+    "Dos jugadores (remate y toque)": dict(dedos=(5, 1)),
+    "Dos dedos y puño": dict(dedos=(2, 0)),
+    "Tres y cuatro dedos": dict(dedos=(3, 4)),
+    "Un jugador contra la IA": dict(dedos=(5,), n=1),
+    "Mano delante de la cara": dict(dedos=(5, 2), mano1=(-18.0, 1.0)),
+    "Lejos de la cámara (85 cm)": dict(dedos=(4, 1), distancia=85.0),
+    "Poca luz": dict(dedos=(5, 3), oscura=True),
 }
+EJEMPLO_CANCHA = "Cancha impresa con ArUco"
 
 _cache_ejemplos: dict[str, Frame] = {}
 
 
 def frame_ejemplo(nombre: str) -> Frame:
-    """Escena sintética con cámara de distorsión conocida (resolución 1280×720)."""
+    """Escena sintética del modo pantalla (dos personas frente a una cámara con distorsión conocida)."""
     if nombre in _cache_ejemplos:
         return _cache_ejemplos[nombre]
-    p = EJEMPLOS.get(nombre, EJEMPLOS["Mano abierta (remate)"])
+    if nombre == EJEMPLO_CANCHA:
+        return frame_ejemplo_cancha()
+    p = EJEMPLOS.get(nombre, next(iter(EJEMPLOS.values())))
     modelo = sin.camara_ejemplo(1280, 720)
-    pose = sin.pose_juego_por_defecto()
-    mano = None if p.get("sin_mano") else sin.EstadoManoSintetica(pos=p["pos"], n_dedos=p["n_dedos"],
-                                                                  angulo=p["angulo"], altura=0.8)
-    img, verdad = sin.escena_cancha(modelo, pose, mano, ruido=3.0, semilla=len(nombre))
-    if p.get("objeto"):
-        # Objeto de color parecido a la piel (p. ej. una pelota de madera) pegado a la mano
-        t = np.linspace(0, 2 * np.pi, 40)
-        cx, cy = p["pos"][0] + 1.0, p["pos"][1] + 7.5
-        pts = np.column_stack([cx + 3.6 * np.cos(t), cy + 3.6 * np.sin(t), np.full_like(t, 0.8)])
-        px = np.round(cal.proyectar(pts, pose, modelo)).astype(np.int32)
-        capa = img.copy()
-        cv2.fillPoly(capa, [px], (110, 145, 200), cv2.LINE_AA)
-        img = sin.ruido_camara(capa, 2.0, 3)
+    jugadores = sin.jugadores_por_defecto(p.get("n", 2))
+    for jug, d in zip(jugadores, p["dedos"]):
+        jug.n_dedos = d
+        if "distancia" in p:
+            jug.distancia = p["distancia"]
+    if "mano1" in p:
+        jugadores[0].mano = p["mano1"]
+    img, verdad = sin.escena_pantalla(modelo, jugadores, ruido=3.0, semilla=len(nombre))
     if p.get("oscura"):
         img = np.clip(img.astype(np.float32) * 0.38 + 6, 0, 255).astype(np.uint8)
         img = sin.ruido_camara(img, 4.0, 5)
     fr = Frame(img, modelo, nombre, verdad)
     _cache_ejemplos[nombre] = fr
     return fr
+
+
+def frame_ejemplo_cancha() -> Frame:
+    """Escena de la v1 (cancha impresa con ArUco), solo para la demo de pose con solvePnP."""
+    if EJEMPLO_CANCHA not in _cache_ejemplos:
+        modelo = sin.camara_ejemplo(1280, 720)
+        img, verdad = sin.escena_cancha(modelo, sin.pose_juego_por_defecto(), None, ruido=3.0)
+        _cache_ejemplos[EJEMPLO_CANCHA] = Frame(img, modelo, EJEMPLO_CANCHA, verdad)
+    return _cache_ejemplos[EJEMPLO_CANCHA]
 
 
 def frame_desde_rgb(img_rgb: np.ndarray | None) -> Frame | None:
@@ -177,25 +184,26 @@ def piel_automatica(img_bgr: np.ndarray, zona: np.ndarray | None = None) -> his.
         return None
 
 
-def piel_para(img_trabajo: np.ndarray, zona: np.ndarray | None = None) -> tuple[his.ModeloPiel | None, str]:
-    if ESTADO.piel is not None:
-        return ESTADO.piel, ESTADO.piel_origen or "calibrada con el recuadro"
-    return piel_automatica(img_trabajo, zona), "automática (rango YCrCb), calíbrala en Histogramas"
+def piel_para(img_trabajo: np.ndarray, lado: int, zona: np.ndarray | None = None) -> tuple[his.ModeloPiel | None, str]:
+    """Piel calibrada del jugador ``lado`` o, si no hay, una automática sembrada con YCrCb en su mitad."""
+    if ESTADO.pieles.get(lado) is not None:
+        return ESTADO.pieles[lado], ESTADO.piel_origen or "calibrada con el recuadro"
+    if zona is None:
+        zona = seg.mascara_mitad(img_trabajo.shape, lado)
+    return piel_automatica(img_trabajo, zona), "automática (rango YCrCb); calíbrala en Histogramas"
+
+
+def pieles_para(fr: Frame, cfg: pl.ConfigPipeline) -> dict:
+    img, _ = pl.preparar_imagen(fr.img, ESTADO.modelo_para(fr), cfg)
+    _, suav = pl.preprocesar(img, cfg)
+    return {lado: piel_para(suav, lado)[0] for lado in pl.LADOS}
 
 
 def ejecutar_pipeline(fr: Frame, usar_calibracion: bool = True, **cambios) -> pl.ResultadoFrame:
-    """Pipeline completo con la configuración de la UI (y piel automática si hace falta)."""
+    """Pipeline completo (dos mitades) con la configuración de la UI y piel automática si hace falta."""
     cfg = pl.ConfigPipeline(**{**ESTADO.config.__dict__, **cambios})
     cfg.usar_calibracion = usar_calibracion and ESTADO.modelo_para(fr) is not None
-    modelo = ESTADO.modelo_para(fr)
-    piel = ESTADO.piel
-    if piel is None:
-        img, m = pl.preparar_imagen(fr.img, modelo, cfg)
-        pose = cal.estimar_pose_cancha(cal.detectar_marcadores(img), m)
-        zona = seg.zona_busqueda(img.shape, pose, m).mascara if pose is not None else None
-        _, suav = pl.preprocesar(img, cfg)
-        piel = piel_automatica(suav, zona)
-    return pl.procesar_frame(fr.img, modelo, piel, cfg)
+    return pl.procesar_frame(fr.img, ESTADO.modelo_para(fr), pieles_para(fr, cfg), cfg)
 
 
 def tabla_md(filas: list[list], encabezado: list[str]) -> str:

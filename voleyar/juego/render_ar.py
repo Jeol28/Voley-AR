@@ -40,9 +40,9 @@ def _en_imagen(img: np.ndarray, p: np.ndarray, margen: int = 2000) -> bool:
 
 
 def dibujar_lineas_cancha(img: np.ndarray, pose: Pose, modelo: ModeloCamara,
-                          color=vis.BGR_NARANJA, grosor: int = 2) -> np.ndarray:
+                          color=vis.BGR_NARANJA, grosor: int = 2, ancho: float | None = None) -> np.ndarray:
     """Contorno y línea central virtuales: con buena calibración caen sobre las impresas."""
-    L, A = cfg.MEDIO_LARGO, cfg.MEDIO_ANCHO
+    L, A = cfg.MEDIO_LARGO, (cfg.MEDIO_ANCHO if ancho is None else ancho)
     t = np.linspace(0, 1, 24)
     esquinas = [(-L, -A), (L, -A), (L, A), (-L, A), (-L, -A)]
     for (x0, y0), (x1, y1) in zip(esquinas[:-1], esquinas[1:]):
@@ -54,10 +54,9 @@ def dibujar_lineas_cancha(img: np.ndarray, pose: Pose, modelo: ModeloCamara,
 
 
 def dibujar_red(img: np.ndarray, pose: Pose, modelo: ModeloCamara, altura: float = cfg.ALTURA_RED,
-                alfa: float = 0.85) -> np.ndarray:
-    """Red virtual en ``x = 0`` como malla 3D proyectada."""
-    A = cfg.MEDIO_ANCHO + 0.4
-    z0 = 0.6
+                alfa: float = 0.85, ancho: float | None = None, z0: float = 0.6) -> np.ndarray:
+    """Red virtual en ``x = 0`` como malla 3D proyectada (``ancho`` = medio ancho en profundidad)."""
+    A = (cfg.MEDIO_ANCHO if ancho is None else ancho) + 0.4
     capa = img.copy()
     # Fondo translúcido de la red
     marco = np.array([[0, -A, z0], [0, A, z0], [0, A, altura], [0, -A, altura]], float)
@@ -233,11 +232,12 @@ def dibujar_escena(img: np.ndarray, pose: Pose, modelo: ModeloCamara, balon_pos:
 
 def dibujar_hud(img: np.ndarray, marcador: tuple[int, int], mensaje: str = "", modo: str = "",
                 fps: float | None = None, gesto: str = "", cerca: bool | None = None,
-                rapidez: float | None = None, detector: str = "clásico") -> np.ndarray:
+                rapidez: float | None = None, detector: str = "clásico",
+                nombres: tuple[str, str] = ("Tú", "IA")) -> np.ndarray:
     """Marcador, mensajes y estado (paleta: grafito, naranja y neutro; verde/rojo solo para datos)."""
     h, w = img.shape[:2]
     tam = max(18, int(h / 24))
-    texto = f"Tú  {marcador[0]}  :  {marcador[1]}  IA"
+    texto = f"{nombres[0]}  {marcador[0]}  :  {marcador[1]}  {nombres[1]}"
     ancho_aprox = int(len(texto) * tam * 0.62)
     vis.poner_texto(img, texto, (w // 2 - ancho_aprox // 2, 12), tam + 6, vis.BGR_NEUTRO, negrita=True,
                     fondo=vis.BGR_GRAFITO, alfa_fondo=0.8)
@@ -301,4 +301,79 @@ def ocluir_con_mano(render: np.ndarray, original: np.ndarray, mascara_mano: np.n
     delante = (en_balon & (z_mano < z_balon)) | (en_red & ~en_balon & (z_mano < z_red))
     out = render.copy()
     out[ys[delante], xs[delante]] = original[ys[delante], xs[delante]]
+    return out
+
+
+# --------------------------------------------------------------------------- #
+# Modo pantalla (v2): cancha virtual completa sobre la imagen de la cámara
+# --------------------------------------------------------------------------- #
+
+AZUL_CANCHA = (176, 92, 22)
+AZUL_CANCHA_2 = (150, 78, 18)
+
+
+def dibujar_piso(img: np.ndarray, pose: Pose, modelo: ModeloCamara, ancho: float = cfg.ANCHO_VISUAL_CANCHA,
+                 alfa: float = 0.78) -> np.ndarray:
+    """Piso de la cancha virtual (plano z = 0) en perspectiva: una mitad por jugador."""
+    L = cfg.MEDIO_LARGO
+    capa = img.copy()
+    for x0, x1, color in ((-L - 1.5, 0.0, AZUL_CANCHA), (0.0, L + 1.5, AZUL_CANCHA_2)):
+        poli = proyectar(np.array([[x0, -ancho, 0], [x1, -ancho, 0], [x1, ancho, 0], [x0, ancho, 0]], float), pose,
+                         modelo)
+        cv2.fillPoly(capa, [np.round(poli).astype(np.int32)], color, cv2.LINE_AA)
+    img[:] = cv2.addWeighted(capa, alfa, img, 1 - alfa, 0)
+    dibujar_lineas_cancha(img, pose, modelo, vis.BGR_NEUTRO, 2, ancho=ancho - 0.3)
+    return img
+
+
+def dibujar_ia_pantalla(img: np.ndarray, pos_xy: np.ndarray, altura: float, pose: Pose, modelo: ModeloCamara) -> None:
+    """La "mano" de la IA: un guante virtual que sigue al balón en su mitad."""
+    c = proyectar(np.array([[pos_xy[0], 0.0, altura]]), pose, modelo)[0]
+    r = max(8, int(radio_en_pixeles(np.array([pos_xy[0], 0.0, altura]), pose, modelo, 1.6)))
+    capa = img.copy()
+    cv2.circle(capa, tuple(np.int32(c)), r, vis.BGR_GRAFITO, -1, cv2.LINE_AA)
+    img[:] = cv2.addWeighted(capa, 0.6, img, 0.4, 0)
+    cv2.circle(img, tuple(np.int32(c)), r, vis.BGR_NARANJA, 2, cv2.LINE_AA)
+    vis.poner_texto(img, "IA", (int(c[0]) - 10, int(c[1]) - 12), 18, vis.BGR_NEUTRO, negrita=True)
+    dibujar_rival(img, pos_xy, pose, modelo)
+
+
+def dibujar_red_frontal(img: np.ndarray, pose: Pose, modelo: ModeloCamara, altura: float = cfg.ALTURA_RED,
+                        medio_grosor: float = 0.6) -> np.ndarray:
+    """Red vista de frente: en la vista lateral el plano ``x = 0`` se ve de canto, así que se
+    dibuja una franja de malla (``|x| ≤ medio_grosor``) en el plano del balón."""
+    g = medio_grosor
+    marco = proyectar(np.array([[-g, 0, 0], [g, 0, 0], [g, 0, altura], [-g, 0, altura]], float), pose, modelo)
+    capa = img.copy()
+    cv2.fillPoly(capa, [np.round(marco).astype(np.int32)], (40, 40, 40), cv2.LINE_AA)
+    img[:] = cv2.addWeighted(capa, 0.35, img, 0.65, 0)
+    capa = img.copy()
+    for x in np.linspace(-g, g, 7):
+        p = proyectar(np.array([[x, 0, 0], [x, 0, altura]]), pose, modelo)
+        cv2.line(capa, _px(p[0]), _px(p[1]), vis.BGR_NEUTRO, 1, cv2.LINE_AA)
+    for z in np.arange(0.0, altura + 1e-6, 0.5):
+        p = proyectar(np.array([[-g, 0, z], [g, 0, z]]), pose, modelo)
+        cv2.line(capa, _px(p[0]), _px(p[1]), vis.BGR_NEUTRO, 1, cv2.LINE_AA)
+    img[:] = cv2.addWeighted(capa, 0.6, img, 0.4, 0)
+    p = proyectar(np.array([[-g - 0.2, 0, altura], [g + 0.2, 0, altura]]), pose, modelo)
+    cv2.line(img, _px(p[0]), _px(p[1]), vis.BGR_NEUTRO, 6, cv2.LINE_AA)
+    for x in (-g, g):
+        p = proyectar(np.array([[x, 0, 0], [x, 0, altura + 0.6]]), pose, modelo)
+        cv2.line(img, _px(p[0]), _px(p[1]), vis.BGR_GRAFITO, 6, cv2.LINE_AA)
+        cv2.line(img, _px(p[0]), _px(p[1]), vis.BGR_NARANJA, 2, cv2.LINE_AA)
+    return img
+
+
+def dibujar_escena_pantalla(img: np.ndarray, pose: Pose, modelo: ModeloCamara, balon_pos: np.ndarray,
+                            ia_xy: np.ndarray | None = None, ia_altura: float = 4.0, marcas=(), t: float = 0.0,
+                            giro: int = 0) -> np.ndarray:
+    """Cancha, red, balón, sombra e IA sobre la imagen (cámara virtual con la K real)."""
+    out = img.copy()
+    dibujar_piso(out, pose, modelo)
+    if ia_xy is not None:
+        dibujar_ia_pantalla(out, ia_xy, ia_altura, pose, modelo)
+    dibujar_sombra(out, balon_pos, pose, modelo)
+    dibujar_red_frontal(out, pose, modelo)
+    dibujar_balon(out, balon_pos, pose, modelo, giro)  # el balón vuela en el plano de la red, delante de ella
+    dibujar_marcas_golpe(out, marcas, t, pose, modelo)
     return out

@@ -48,13 +48,15 @@ class Entrada:
     estado: gr.State
 
 
-def bloque_entrada(ejemplo: str = "Mano abierta (remate)", alto: int = 300) -> Entrada:
+def bloque_entrada(ejemplo: str | None = None, alto: int = 300, ejemplos: list[str] | None = None) -> Entrada:
     """Entrada común: imagen subida o escena de ejemplo, o la cámara web en vivo (streaming)."""
+    ejemplos = ejemplos or list(EJEMPLOS)
+    ejemplo = ejemplo if ejemplo in ejemplos else ejemplos[0]
     with gr.Tabs():
         with gr.Tab("Imagen"):
             subida = gr.Image(sources=["upload", "clipboard"], type="numpy", label="Imagen de entrada", height=alto)
             with gr.Row():
-                ej = gr.Dropdown(choices=list(EJEMPLOS), value=ejemplo, label="Escena de ejemplo (sintética)",
+                ej = gr.Dropdown(choices=ejemplos, value=ejemplo, label="Escena de ejemplo (sintética)",
                                  scale=3)
                 boton = gr.Button("Cargar ejemplo", scale=1)
         with gr.Tab("Cámara en vivo"):

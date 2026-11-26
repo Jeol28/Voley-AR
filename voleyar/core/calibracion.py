@@ -582,3 +582,58 @@ def vista_cenital(pose: Pose, modelo: ModeloCamara, ppcm: float = 10.0,
     A = np.array([[ppcm, 0, -x0 * ppcm], [0, -ppcm, y1 * ppcm], [0, 0, 1]])
     H = A @ np.linalg.inv(P)
     return VistaCenital(H / H[2, 2], (int(round((x1 - x0) * ppcm)), int(round((y1 - y0) * ppcm))), ppcm, x0, y1, z)
+
+
+# =========================================================================== #
+# Cámara virtual del modo pantalla (v2)
+# =========================================================================== #
+
+
+def camara_virtual(modelo: ModeloCamara, ocupacion: float = cfg.OCUPACION_CANCHA,
+                   fraccion_piso: float = cfg.FRACCION_PISO) -> Pose:
+    r"""Pose de una cámara virtual que encuadra la cancha virtual en la imagen.
+
+    Sin cancha impresa no hay pose que medir: se **elige** una. La cámara virtual
+    usa la misma ``K`` que la real y mira horizontalmente la red (plano
+    :math:`y = 0`) desde :math:`y = -D`. Con :math:`u = c_x + f_x\,X/Z`:
+
+    - :math:`D = f_x \cdot 2L / (\text{ocupación}\cdot W)` hace que la cancha
+      (largo :math:`2L`) ocupe esa fracción del ancho :math:`W`;
+    - la altura :math:`h = (\text{fracción}\cdot H - c_y)\,D/f_y` lleva el piso
+      a la fila deseada;
+    - el desplazamiento lateral :math:`-(W/2 - c_x)\,D/f_x` deja la red en la
+      columna central aunque el punto principal no esté en el centro.
+
+    Por eso la calibración sigue importando: con la ``K`` y la distorsión reales,
+    la red, el balón y las manos comparten la misma geometría que la imagen
+    corregida.
+    """
+    W, H = modelo.ancho, modelo.alto
+    fx, fy, cx, cy = modelo.K[0, 0], modelo.K[1, 1], modelo.K[0, 2], modelo.K[1, 2]
+    D = fx * 2 * cfg.MEDIO_LARGO / (ocupacion * W)
+    h = (fraccion_piso * H - cy) * D / fy
+    Cx = -(W / 2 - cx) * D / fx
+    C = np.array([Cx, -D, h])
+    R = np.array([[1.0, 0, 0], [0, 0, -1.0], [0, 1.0, 0]])  # x→x, z(arriba)→-y, y(profundidad)→z
+    t = -R @ C
+    return Pose(cv2.Rodrigues(R)[0].ravel(), t)
+
+
+def pixel_a_plano(px: tuple[float, float], pose: Pose, modelo: ModeloCamara, eje: int = 1,
+                  valor: float = 0.0) -> np.ndarray | None:
+    """Intersección del rayo de un píxel con el plano ``P_w[eje] = valor`` (eje 1 = plano de la red)."""
+    o, d = rayo_desde_pixel(px, pose, modelo)
+    if abs(d[eje]) < 1e-9:
+        return None
+    lam = (valor - o[eje]) / d[eje]
+    return None if lam <= 0 else o + lam * d
+
+
+def distancia_por_tamano(tamano_px: float, tamano_cm: float, f: float) -> float:
+    r"""Distancia a la cámara de un objeto de tamaño conocido: :math:`Z = f\,W / w`.
+
+    Es la proyección pinhole al revés (:math:`w = f\,W/Z`). Con la focal
+    equivocada (sin calibrar) la distancia sale escalada por
+    :math:`f_{aprox}/f_{real}`.
+    """
+    return float(f * tamano_cm / max(tamano_px, 1e-6))

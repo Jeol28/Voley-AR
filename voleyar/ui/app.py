@@ -30,12 +30,13 @@ def crear_app() -> gr.Blocks:
         gr.Markdown("# Voley AR")
         nueva_sesion_componente()
         if EN_SPACE:
-            estado_cam = ("versión en línea: imprime la cancha, calibra tu cámara en la pestaña Calibración y "
-                          "juega en la pestaña Jugar")
+            estado_cam = ("versión en línea: calibra tu cámara en la pestaña Calibración y jueguen en la pestaña "
+                          "Jugar, un jugador a cada lado de la imagen (o tú contra la IA)")
         else:
             estado_cam = ("cámara calibrada (config/camara.json)" if ESTADO.modelo_camara is not None
                           else "cámara **sin calibrar**: empieza por la pestaña Calibración")
-        gr.Markdown("Voleibol en realidad aumentada sobre la mesa. Proyecto final de Visión Artificial · "
+        gr.Markdown("Voleibol en realidad aumentada: la cancha, la red y el balón se dibujan en la pantalla y se juega "
+                    "con las manos, uno contra uno o contra la IA. Proyecto final de Visión Artificial · "
                     f"Jorge Enrique Olaya Liévano · {estado_cam}.")
         with gr.Tabs():
             for nombre, modulo in PESTANAS:
