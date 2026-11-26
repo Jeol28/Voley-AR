@@ -161,9 +161,20 @@ class InfoCorte:
     transformada: np.ndarray | None = field(default=None, repr=False)
 
 
+def transformada_distancia(mascara: np.ndarray) -> np.ndarray:
+    """Transformada de distancia euclídea tratando el borde de la imagen como fondo."""
+    pad = cv2.copyMakeBorder(mascara, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0)
+    return cv2.distanceTransform(pad, cv2.DIST_L2, 5)[1:-1, 1:-1]
+
+
 def centro_palma(mascara: np.ndarray) -> tuple[tuple[float, float], float, np.ndarray]:
-    """Centro de la palma = máximo de la transformada de distancia; su valor es el radio."""
-    dt = cv2.distanceTransform(mascara, cv2.DIST_L2, 5)
+    """Centro de la palma = máximo de la transformada de distancia; su valor es el radio.
+
+    Se agrega un marco de ceros antes de la transformada: OpenCV no considera
+    el borde de la imagen como fondo, y un brazo que sale del cuadro parecería
+    más grueso que la palma.
+    """
+    dt = transformada_distancia(mascara)
     _, r, _, (x, y) = cv2.minMaxLoc(dt)
     return (float(x), float(y)), float(r), dt
 
@@ -254,7 +265,7 @@ def watershed_regiones(img_bgr: np.ndarray, mascara: np.ndarray, frac_pico: floa
     Devuelve ``(etiquetas, n_regiones)``: etiquetas ``1..n`` por objeto, ``-1``
     en las líneas divisorias y ``0`` en el fondo.
     """
-    dt = cv2.distanceTransform(mascara, cv2.DIST_L2, 5)
+    dt = transformada_distancia(mascara)
     if dt.max() <= 0:
         return np.zeros(mascara.shape, np.int32), 0
     seguro_fg = np.uint8(dt > frac_pico * dt.max()) * 255
