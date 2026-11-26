@@ -240,10 +240,10 @@ def poligonos_mano(n_dedos: int, con_brazo: bool = True) -> list[np.ndarray]:
 
     # (base_x, base_y, largo, ancho, ángulo) – mano derecha vista desde arriba (palma abajo)
     dedos = [
-        (3.4, 2.1, 7.0, 1.7, 14),    # índice
-        (3.9, 0.55, 7.6, 1.75, 4),   # medio
-        (3.7, -1.05, 7.0, 1.65, -6),  # anular
-        (3.1, -2.6, 5.6, 1.45, -18),  # meñique
+        (3.4, 2.4, 7.0, 1.6, 18),    # índice (dedos algo separados, como al golpear con la mano abierta)
+        (3.9, 0.65, 7.6, 1.65, 6),   # medio
+        (3.7, -1.15, 7.0, 1.55, -7),  # anular
+        (3.1, -2.85, 5.6, 1.4, -21),  # meñique
         (0.6, 3.4, 5.6, 2.0, 62),    # pulgar
     ]
     for d in dedos[:n_dedos]:
@@ -372,4 +372,154 @@ class FuenteSintetica:
         return True, ruido_camara(img, 2.5, self._i % 5)
 
     def liberar(self) -> None:  # interfaz común con la cámara
+        pass
+
+
+# =========================================================================== #
+# Modo pantalla (v2): dos personas frente a la cámara, sin cancha impresa
+# =========================================================================== #
+
+PIELES_JUGADORES = [(120, 150, 205), (80, 112, 168)]  # dos tonos de piel distintos (BGR)
+COLOR_PARED = (150, 140, 128)
+COLOR_CAMISA = [(70, 50, 35), (40, 55, 40)]
+
+
+@dataclass
+class JugadorSintetico:
+    """Una persona frente a la cámara (coordenadas de la cámara, cm: x derecha, y abajo, z adelante)."""
+
+    mano: tuple[float, float] = (-12.0, 7.0)  # centro de la palma (x, y) en cm
+    distancia: float = 60.0  # z de la mano en cm
+    n_dedos: int = 5
+    angulo: float = 90.0  # 90 = dedos hacia arriba
+    cara: tuple[float, float] = (-28.0, -20.0)  # centro de la cara (x, y) en cm, 15 cm detrás de la mano
+    piel: tuple[int, int, int] = (120, 150, 205)
+    camisa: tuple[int, int, int] = (70, 50, 35)
+    visible: bool = True
+
+
+def jugadores_por_defecto(n: int = 2) -> list[JugadorSintetico]:
+    j = [JugadorSintetico((-12.0, 7.0), 60.0, 5, 90.0, (-28.0, -20.0), PIELES_JUGADORES[0], COLOR_CAMISA[0])]
+    if n > 1:
+        j.append(JugadorSintetico((13.0, 8.0), 64.0, 1, 100.0, (29.0, -19.0), PIELES_JUGADORES[1], COLOR_CAMISA[1]))
+    return j
+
+
+def _proyectar_cam(pts_cm: np.ndarray, modelo: ModeloCamara) -> np.ndarray:
+    px, _ = cv2.projectPoints(np.asarray(pts_cm, np.float64).reshape(-1, 3), np.zeros(3), np.zeros(3),
+                              modelo.K, modelo.dist)
+    return px.reshape(-1, 2)
+
+
+def _dibujar_cara(img, cx, cy, s, piel) -> tuple[int, int, int, int]:
+    """Cara de dibujo (la cascada Haar la reconoce). Devuelve su caja (x, y, w, h)."""
+    oscuro = tuple(int(c * 0.55) for c in piel)
+    cv2.ellipse(img, (cx, cy), (int(0.42 * s), int(0.55 * s)), 0, 0, 360, piel, -1, cv2.LINE_AA)
+    for dx in (-0.17, 0.17):
+        ex, ey = int(cx + dx * s), int(cy - 0.1 * s)
+        cv2.line(img, (ex - int(0.11 * s), ey - int(0.12 * s)), (ex + int(0.11 * s), ey - int(0.13 * s)), (40, 45, 55),
+                 max(2, int(0.035 * s)))
+        cv2.ellipse(img, (ex, ey), (int(0.09 * s), int(0.045 * s)), 0, 0, 360, (245, 245, 245), -1)
+        cv2.circle(img, (ex, ey), int(0.04 * s), (40, 30, 30), -1)
+    cv2.line(img, (cx, cy - int(0.05 * s)), (cx - int(0.04 * s), cy + int(0.12 * s)), oscuro, max(2, int(0.025 * s)))
+    cv2.ellipse(img, (cx, cy + int(0.27 * s)), (int(0.15 * s), int(0.05 * s)), 0, 0, 180, (70, 70, 150),
+                max(2, int(0.03 * s)))
+    cv2.ellipse(img, (cx, cy - int(0.5 * s)), (int(0.45 * s), int(0.2 * s)), 0, 180, 360, (30, 35, 45), -1)
+    return (int(cx - 0.42 * s), int(cy - 0.55 * s), int(0.84 * s), int(1.1 * s))
+
+
+def fondo_pantalla(modelo: ModeloCamara, jugadores: list[JugadorSintetico], semilla: int = 0):
+    """Pared, torsos con camisa y caras (sin manos). Devuelve la imagen y las cajas de las caras."""
+    w, h = modelo.ancho, modelo.alto
+    rng = np.random.default_rng(semilla)
+    img = np.empty((h, w, 3), np.float32)
+    img[:] = COLOR_PARED
+    img *= np.linspace(1.08, 0.85, h, dtype=np.float32)[:, None, None]
+    img += cv2.GaussianBlur(rng.normal(0, 5, (h, w)).astype(np.float32), (0, 0), 4)[..., None]
+    img = np.clip(img, 0, 255).astype(np.uint8)
+    caras = []
+    f = modelo.K[0, 0]
+    for j in jugadores:
+        if not j.visible:
+            continue
+        zc = j.distancia + 15.0
+        c = _proyectar_cam([[j.cara[0], j.cara[1], zc]], modelo)[0]
+        s = f * 20.0 / zc
+        # Torso (camisa oscura) desde los hombros hasta abajo
+        hombros = _proyectar_cam([[j.cara[0] - 20, j.cara[1] + 15, zc], [j.cara[0] + 20, j.cara[1] + 15, zc],
+                                  [j.cara[0] + 24, j.cara[1] + 80, zc], [j.cara[0] - 24, j.cara[1] + 80, zc]], modelo)
+        cv2.fillPoly(img, [np.round(hombros).astype(np.int32)], j.camisa, cv2.LINE_AA)
+        cuello = _proyectar_cam([[j.cara[0] - 5, j.cara[1] + 6, zc], [j.cara[0] + 5, j.cara[1] + 6, zc],
+                                 [j.cara[0] + 5, j.cara[1] + 16, zc], [j.cara[0] - 5, j.cara[1] + 16, zc]], modelo)
+        cv2.fillPoly(img, [np.round(cuello).astype(np.int32)], tuple(int(v * 0.9) for v in j.piel), cv2.LINE_AA)
+        caras.append(_dibujar_cara(img, int(c[0]), int(c[1]), s, j.piel))
+    return cv2.GaussianBlur(img, (3, 3), 0.8), caras
+
+
+def dibujar_mano_pantalla(img: np.ndarray, modelo: ModeloCamara, j: JugadorSintetico, semilla: int = 0):
+    """Mano levantada frente a la cámara (plano z = distancia). Devuelve imagen, mano verdadera y toda la piel."""
+    polis = mano_a_mesa(poligonos_mano(j.n_dedos, True), (0.0, 0.0), j.angulo)
+    out = img.copy()
+    verdad = np.zeros(img.shape[:2], np.uint8)
+    capa = np.zeros(img.shape[:2], np.uint8)
+    for k, p in enumerate(polis):
+        # local (x, y-arriba) → cámara (x, y-abajo)
+        p3 = np.column_stack([j.mano[0] + p[:, 0], j.mano[1] - p[:, 1], np.full(len(p), j.distancia)])
+        q = np.round(_proyectar_cam(p3, modelo)).astype(np.int32)
+        cv2.fillPoly(capa, [q], 255)
+        if k < len(polis) - 1:
+            cv2.fillPoly(verdad, [q], 255)
+    rng = np.random.default_rng(semilla)
+    h, w = img.shape[:2]
+    variacion = cv2.GaussianBlur(rng.normal(0, 9, (h, w)).astype(np.float32), (0, 0), 6)
+    dist = cv2.distanceTransform(capa, cv2.DIST_L2, 5)
+    sombra = np.clip(dist / 14.0, 0, 1) * 0.22 + 0.78
+    piel = np.clip(np.array(j.piel, np.float32)[None, None, :] * sombra[..., None] + variacion[..., None], 0, 255)
+    a = cv2.GaussianBlur(capa, (3, 3), 0).astype(np.float32)[..., None] / 255.0
+    out = (piel * a + out * (1 - a)).astype(np.uint8)
+    return out, verdad, capa
+
+
+def escena_pantalla(modelo: ModeloCamara | None = None, jugadores: list[JugadorSintetico] | None = None,
+                    ruido: float = 3.0, semilla: int = 0) -> tuple[np.ndarray, dict]:
+    """Escena del modo pantalla con su verdad: máscaras de cada mano, caras y distancias."""
+    modelo = modelo or camara_ejemplo(1280, 720)
+    jugadores = jugadores_por_defecto() if jugadores is None else jugadores
+    img, caras = fondo_pantalla(modelo, jugadores, semilla)
+    manos, pieles = [], []
+    for i, j in enumerate(jugadores):
+        if j.visible:
+            img, m, p = dibujar_mano_pantalla(img, modelo, j, semilla + i)
+        else:
+            m = p = np.zeros(img.shape[:2], np.uint8)
+        manos.append(m)
+        pieles.append(p)
+    if ruido > 0:
+        img = ruido_camara(img, ruido, semilla)
+    return img, {"modelo": modelo, "jugadores": jugadores, "mascaras_mano": manos, "mascaras_piel": pieles,
+                 "caras": caras}
+
+
+class FuentePantalla:
+    """Fuente sintética del modo pantalla: las manos de los jugadores se mueven desde fuera."""
+
+    def __init__(self, modelo: ModeloCamara | None = None, n_jugadores: int = 2):
+        self.modelo = modelo or camara_ejemplo(1280, 720)
+        self.jugadores = jugadores_por_defecto(n_jugadores)
+        self._fondo, self.caras = fondo_pantalla(self.modelo, self.jugadores)
+        self._i = 0
+
+    @property
+    def mano(self) -> JugadorSintetico:  # compatibilidad: el jugador 1 se controla con el mouse
+        return self.jugadores[0]
+
+    def leer(self) -> tuple[bool, np.ndarray]:
+        self._i += 1
+        img = self._fondo
+        for k, j in enumerate(self.jugadores):
+            if j.visible:
+                img, _, _ = dibujar_mano_pantalla(img, self.modelo, j, semilla=(self._i + k) % 7)
+        return True, ruido_camara(img, 2.5, self._i % 5)
+
+    def liberar(self) -> None:
         pass
