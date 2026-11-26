@@ -108,32 +108,58 @@ distancias salgan en centímetros reales. Se hace una sola vez.
 STUN = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"]}]}
 
 
-def _turn_hf(ttl: int) -> dict | None:
-    """Credenciales TURN de Hugging Face (con el secreto ``HF_TOKEN``); ``None`` si no se pueden obtener."""
-    if not (EN_SPACE and os.environ.get("HF_TOKEN")):
+def _turn_cloudflare(ttl: int) -> dict | None:
+    """Relé TURN de Cloudflare con los secretos ``CLOUDFLARE_TURN_KEY_ID`` y ``CLOUDFLARE_TURN_KEY_API_TOKEN``."""
+    key_id, token = os.environ.get("CLOUDFLARE_TURN_KEY_ID"), os.environ.get("CLOUDFLARE_TURN_KEY_API_TOKEN")
+    if not (key_id and token):
         return None
     try:
-        from fastrtc import get_cloudflare_turn_credentials
+        import httpx
 
-        cred = get_cloudflare_turn_credentials(ttl=ttl)
+        r = httpx.post(f"https://rtc.live.cloudflare.com/v1/turn/keys/{key_id}/credentials/generate-ice-servers",
+                       headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                       json={"ttl": ttl}, timeout=10)
+        r.raise_for_status()
+        datos = r.json()
+        return datos if datos.get("iceServers") else None
+    except Exception as e:
+        print(f"[webrtc] sin TURN de Cloudflare ({type(e).__name__}: {e})", flush=True)
+        return None
+
+
+def _turn_hf(ttl: int) -> dict | None:
+    """Relé TURN de Hugging Face vía fastrtc (secreto ``HF_TOKEN``); ``None`` si no se puede obtener."""
+    if not os.environ.get("HF_TOKEN"):
+        return None
+    try:
+        from fastrtc import get_hf_turn_credentials
+
+        cred = get_hf_turn_credentials(ttl=ttl)
         return cred if isinstance(cred, dict) and cred.get("iceServers") else None
     except Exception as e:  # p. ej. certificado vencido en el servidor de credenciales
-        print(f"[webrtc] sin TURN de Hugging Face ({type(e).__name__}: {e}); se usa STUN", flush=True)
+        print(f"[webrtc] sin TURN de Hugging Face ({type(e).__name__}: {e})", flush=True)
         return None
+
+
+def _turn(ttl: int) -> dict | None:
+    if not EN_SPACE:
+        return None
+    return _turn_cloudflare(ttl) or _turn_hf(ttl)
 
 
 def configuracion_rtc():
     """Configuración ICE del navegador.
 
-    En un Space lo ideal es un relé TURN (Hugging Face lo da con ``HF_TOKEN``); si no está
-    disponible se usa STUN, que funciona cuando la red permite una conexión directa.
+    En un Space hace falta un relé TURN: primero Cloudflare (secretos ``CLOUDFLARE_TURN_KEY_ID`` y
+    ``CLOUDFLARE_TURN_KEY_API_TOKEN``), luego Hugging Face (``HF_TOKEN``). Sin ninguno se intenta STUN,
+    que solo funciona si la red permite una conexión directa (en los Spaces normalmente no).
     En local la conexión es directa y no hace falta nada.
     """
     if not EN_SPACE:
         return None
 
     async def credenciales():
-        return _turn_hf(ttl=600) or STUN
+        return _turn(ttl=600) or STUN
 
     return credenciales
 
@@ -141,7 +167,7 @@ def configuracion_rtc():
 def configuracion_rtc_servidor():
     if not EN_SPACE:
         return None
-    return _turn_hf(ttl=360_000) or STUN
+    return _turn(ttl=360_000) or STUN
 
 
 # --------------------------------------------------------------------------- #
