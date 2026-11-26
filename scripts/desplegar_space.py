@@ -53,9 +53,17 @@ def publicar(repo: str, privado: bool, hardware: str) -> str:
     from huggingface_hub import HfApi
 
     api = HfApi()
-    api.create_repo(repo, repo_type="space", space_sdk="gradio", private=privado, exist_ok=True)
+    if api.repo_exists(repo, repo_type="space"):
+        # Reemplaza el contenido en un solo commit: borra lo que no esté en dist/space (salvo .gitattributes,
+        # que guarda las reglas de LFS/Xet de los binarios). El historial del Space conserva lo anterior.
+        nuevos = {p.relative_to(DESTINO).as_posix() for p in DESTINO.rglob("*") if p.is_file()}
+        viejos = set(api.list_repo_files(repo, repo_type="space"))
+        borrar = sorted(viejos - nuevos - {".gitattributes"})
+    else:
+        api.create_repo(repo, repo_type="space", space_sdk="gradio", private=privado, space_hardware=hardware)
+        borrar = []
     api.upload_folder(folder_path=str(DESTINO), repo_id=repo, repo_type="space",
-                      commit_message="Despliegue de Voley AR", delete_patterns=["*", "!.gitattributes"])
+                      commit_message="Despliegue de Voley AR", delete_patterns=borrar or None)
     if api.get_space_runtime(repo).requested_hardware != hardware:
         api.request_space_hardware(repo, hardware)
     return f"https://huggingface.co/spaces/{repo}"
