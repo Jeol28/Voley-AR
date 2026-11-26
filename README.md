@@ -135,17 +135,18 @@ python app.py                      # http://127.0.0.1:7860 (o el Space en línea
    puntos para ganar (7, 11 o 15) y "Usar la calibración" (para comparar). Desde el inicio también se abren **Cómo se
    juega** y **Calibrar cámara**, que es un asistente con el tablero.
 2. Pongan la cámara frente a ustedes, a unos 50-75 cm: el jugador 1 a la izquierda y el jugador 2 a la derecha.
-3. Aparece un **recuadro naranja** en la mitad de cada jugador. Cúbranlo con la palma, a la distancia a la que van a
-   jugar, y pulsen **¡Listo!** (o `ESPACIO` en la ventana): se aprende el color de la piel de cada uno.
-4. Durante los primeros segundos se mide la distancia de cada mano (su plano de juego). A jugar. Al terminar,
-   **Revancha** o **Menú principal**.
+3. Se juega de una, sin calibrar nada: muevan la mano (o un cuaderno, o lo que quieran) sobre el balón para
+   devolverlo. Lo quieto es parte del cuarto y no golpea.
+4. El color de la piel se aprende solo: mientras no hay histograma propio se usa el rango fijo de YCrCb, y en cuanto
+   una mano se confirma (forma + movimiento + histéresis) sus píxeles construyen los histogramas H-S y Cr-Cb de ese
+   jugador, que se refrescan cada 30 frames. Durante los primeros segundos también se mide la distancia de cada mano
+   (su plano de juego). Al terminar, **Revancha** o **Menú principal**.
 
 En la ventana todo se elige con el mouse o con la tecla que aparece en cada botón. Atajos durante la partida:
 
 | Tecla | Acción |
 |---|---|
-| `ESPACIO` | capturar la piel de cada jugador |
-| `ESC` | pausa: seguir, recalibrar la piel, reiniciar, menú principal o salir |
+| `ESC` | pausa: seguir, reiniciar, menú principal o salir |
 | `V` / `B` | siguiente / anterior tema: cómo te ve el juego, en vivo (ver la sección siguiente) |
 | `[` / `]` | cambiar el ajuste del tema que se está viendo |
 | `C` | con calibración / sin calibración |
@@ -173,8 +174,8 @@ se cambia su ajuste principal y se ve el efecto sin dejar de jugar.
 | 7 · Caracterización | La silueta de cada mano con casco convexo, valles y puntas; dedos, gesto, área en cm², solidez y circularidad. | umbral de los dedos (k·r) |
 | 8 · Transformers | El mapa de profundidad de Depth Anything y las cajas de OWLv2; latencias y si cada mano está delante de su cara. | jugar con OWLv2 |
 
-Las vistas también funcionan durante la calibración de la piel: la de Histogramas muestra el modelo recién
-aprendido.
+La vista de Histogramas dice cuántas veces se ha aprendido la piel de cada jugador; antes de la primera muestra lo que
+el rango fijo de YCrCb toma por piel.
 
 ## Despliegue en Hugging Face Spaces (ZeroGPU)
 

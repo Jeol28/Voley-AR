@@ -216,24 +216,26 @@ def test_juego_sin_ventana_con_fuente_sintetica(modo):
 
 
 def test_juego_en_el_navegador_con_frames_externos():
-    import time
-
     from voleyar.juego.navegador import FuenteExterna, crear_juego_navegador, paso_navegador
 
     modelo = s.camara_ejemplo(640, 360)
     j = crear_juego_navegador(modelo, "2j")
     assert isinstance(j.fuente, FuenteExterna)
     fuente = s.FuentePantalla(modelo)
-    assert paso_navegador(j, fuente.leer()[1]) is not None and j.fase == "calibrar_piel"
-    res = j.ultimo_res
-    K = res.modelo.K
-    for lado, jug in zip((-1, 1), fuente.jugadores):  # cada palma sobre su recuadro
-        x, y, w, h = pl.recuadro_piel(res.imagen.shape, lado)
-        jug.mano = ((x + w / 2 - K[0, 2]) / K[0, 0] * jug.distancia, (y + h / 2 - K[1, 2]) / K[1, 1] * jug.distancia)
-    j.tecla(ord(" "))
-    j.t_cuenta = time.perf_counter()
     out = paso_navegador(j, fuente.leer()[1])
-    assert j.fase == "jugando" and out.shape[:2] == (360, 640)
+    assert j.fase == "jugando" and out.shape[:2] == (360, 640)  # se juega de una, sin calibrar la piel
+
+
+def test_la_piel_se_aprende_sola_de_la_mano_confirmada():
+    from voleyar.juego.bucle import Juego, OpcionesJuego
+
+    j = Juego(OpcionesJuego(modo="2j", sintetico=True, profundidad=False, headless=True, semilla=3,
+                            ancho=960, alto=540))
+    assert j.fase == "jugando" and all(x.piel is None for x in j.jugadores.values())
+    _jugar(j, 150)
+    for x in j.jugadores.values():  # cada jugador tiene ya su histograma, sacado de su propia mano
+        assert x.piel is not None and x.n_aprendizajes >= 1 and x.piel.hist_crcb.max() > 0
+    assert all(r.retro is not None for r in j.ultimo_res.manos.values())  # y ya se usa la retroproyección
 
 
 def test_menus_del_juego_de_escritorio():

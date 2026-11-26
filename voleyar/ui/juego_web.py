@@ -54,8 +54,9 @@ COMO_SE_JUEGA = """
 ### Prepárense
 1. Pongan la cámara frente a ustedes, a unos **50-75 cm**. **Jugador 1 a la izquierda, jugador 2 a la derecha**
    (o tú solo a la izquierda contra la IA). Buena luz y, si se puede, mangas largas oscuras.
-2. Pulsen **Empezar** en el video. Aparece un **recuadro naranja** en la mitad de cada jugador: pongan la palma
-   encima, a la distancia a la que van a jugar, y pulsen **¡Listo!**. Así el juego aprende el color de su piel.
+2. Pulsen **Empezar** en el video y a jugar: no hay nada que calibrar. Muevan la mano (o un cuaderno, o lo que
+   quieran) sobre el balón para devolverlo. Lo que se queda quieto es parte del cuarto y no golpea. El juego aprende
+   solo el color de su piel en cuanto reconoce sus manos.
 
 ### Golpes
 | Mano | Golpe |
@@ -225,7 +226,7 @@ def _preparar(s: sesiones.Sesion) -> None:
 
 
 def empezar(clave: str, modo: str):
-    """Botón de modo en el inicio: partida nueva (si ya calibraron la piel, se conserva)."""
+    """Botón de modo en el inicio: partida nueva (la piel ya aprendida se conserva)."""
     s = sesiones.obtener(clave)
     with s.cerrojo:
         s.modo = modo
@@ -449,16 +450,14 @@ def construir(demo: gr.Blocks) -> None:
     with gr.Column(visible=False, elem_classes="pantalla-juego") as p_juego:
         with gr.Row():
             with gr.Column(scale=3, min_width=260):
-                gr.Markdown("**1.** Pulsa **Empezar** en el video.  \n**2.** Palma sobre tu recuadro y **¡Listo!**",
+                gr.Markdown("Pulsa **Empezar** en el video y golpea el balón con la mano o con lo que quieras.",
                             elem_classes="nota")
-                b_listo = gr.Button("¡Listo!", variant="primary", elem_classes="boton-medio")
                 with gr.Row():
                     b_pausa = gr.Button("Pausa / Seguir")
                     b_reini = gr.Button("Reiniciar")
                 with gr.Row():
                     b_revancha = gr.Button("Revancha")
-                    b_piel = gr.Button("Recalibrar piel")
-                b_menu = gr.Button("Menú principal")
+                    b_menu = gr.Button("Menú principal")
                 vista = gr.Dropdown(OPCIONES_VISTA, value="juego", label="¿Qué quieres ver?")
                 with gr.Row():
                     b_menos = gr.Button("−", min_width=60)
@@ -485,8 +484,7 @@ def construir(demo: gr.Blocks) -> None:
 
     video.stream(VideoStreamHandler(frame_juego, fps=30, skip_frames=True), inputs=[video, clave], outputs=[video],
                  concurrency_limit=CONCURRENCIA_VIDEO, send_input_on="submit")
-    for b, nombre in ((b_listo, "listo"), (b_pausa, "pausa"), (b_reini, "reiniciar"), (b_revancha, "revancha"),
-                      (b_piel, "piel")):
+    for b, nombre in ((b_pausa, "pausa"), (b_reini, "reiniciar"), (b_revancha, "revancha")):
         b.click(accion(nombre), clave, None)
     b_menu.click(volver_al_menu, clave, [chip, *pantallas])
     vista.change(elegir_vista, [clave, vista], param)

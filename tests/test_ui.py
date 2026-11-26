@@ -51,13 +51,7 @@ def _sesion_con_juego(modo="2j"):
     jw.guardar_ajustes(clave, "facil", 7, True, espejo=False)  # los frames sintéticos ya están sin espejo
     pantallas = jw.empezar(clave, modo)
     jw.frame_juego(fuente.leer()[1], clave)
-    juego = sesiones.obtener(clave).juego
-    K = juego.ultimo_res.modelo.K
-    for lado, jug in zip((-1, 1), fuente.jugadores):
-        x, y, w, h = pl.recuadro_piel(juego.ultimo_res.imagen.shape, lado)
-        jug.mano = ((x + w / 2 - K[0, 2]) / K[0, 0] * jug.distancia, (y + h / 2 - K[1, 2]) / K[1, 1] * jug.distancia)
-    jw.accion("listo")(clave)
-    juego.t_cuenta = time.perf_counter()
+    juego = sesiones.obtener(clave).juego  # se juega de una, sin calibrar la piel
 
     def jugar(n):
         out = None
@@ -103,7 +97,7 @@ def test_juego_web_por_video():
     assert juego.fase == "jugando" and juego.config.usar_calibracion and out.shape == (360, 640, 3)
     jw.accion("pausa")(clave)
     assert juego.pausado
-    # Volver al menú y elegir otro modo conserva la piel del jugador 1
+    # Volver al menú y elegir otro modo conserva la sesión y su juego
     jw.volver_al_menu(clave)
     jw.empezar(clave, "ia")
     assert sesiones.obtener(clave).juego is juego and juego.op.modo == "ia" and juego.fase == "jugando"

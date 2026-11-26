@@ -216,6 +216,8 @@ def _filtros(juego, res, img):
 
 def _histogramas(juego, res, img):
     retros = [r.retro for r in res.manos.values() if r.retro is not None]
+    if not retros:  # aún sin histograma propio: lo que el rango fijo de YCrCb toma por piel
+        retros = [r.mascara_umbral for r in res.manos.values() if r.mascara_umbral is not None]
     out = img
     if retros:
         calor = cv2.applyColorMap(np.maximum.reduce(retros), cv2.COLORMAP_INFERNO)
@@ -226,12 +228,15 @@ def _histogramas(juego, res, img):
     for lado in juego.lados:
         piel = juego.jugadores[lado].piel
         if piel is None:
+            lineas.append(f"{pl.NOMBRES_LADO[lado]}: aún sin histograma propio (se usa el rango fijo de YCrCb); "
+                          "se aprende solo en cuanto se confirma una mano")
             continue
         mapa = cv2.applyColorMap(vis.normalizar_u8(np.log1p(piel.hist_crcb)), cv2.COLORMAP_INFERNO)
         mapa = cv2.resize(mapa, (lado_mini, lado_mini), interpolation=cv2.INTER_NEAREST)
         x = 10 if lado < 0 else w - lado_mini - 10
         _insertar(out, mapa, x, int(h * 0.2), "Cr-Cb")
-        lineas.append(f"{pl.NOMBRES_LADO[lado]}: su piel en Cr-Cb ({piel.n_pixeles} px); la retroproyección pinta "
+        lineas.append(f"{pl.NOMBRES_LADO[lado]}: su piel en Cr-Cb, aprendida sola de su mano "
+                      f"({getattr(juego.jugadores[lado], 'n_aprendizajes', 0)} veces); la retroproyección pinta "
                       "lo que se le parece")
     g = lambda im: float(cv2.cvtColor(im, cv2.COLOR_BGR2GRAY).std())  # noqa: E731
     lineas.append(f"Contraste con CLAHE (clip {juego.config.clahe_clip:.0f}): {g(res.imagen):.1f} → {g(res.clahe):.1f}")

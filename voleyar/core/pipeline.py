@@ -249,7 +249,7 @@ def _procesar_mano(lado: int, suav: np.ndarray, piel: his.ModeloPiel | None, pro
     if piel is not None:
         r.retro = his.retroproyeccion(suav, piel, config.espacio_retro, config.disco_retro, zona)
         r.mascara_umbral, r.T_otsu = umb.umbral_piel_otsu(r.retro, zona, config.t_min_otsu)
-    else:  # sin calibrar la piel: rango fijo en YCrCb
+    else:  # aún sin histograma aprendido de la mano: rango fijo en YCrCb
         r.mascara_umbral = cv2.bitwise_and(umb.umbral_ycrcb(suav), zona)
     r.mascara_limpia = mor.limpiar_mascara(r.mascara_umbral, config.tam_apertura, config.tam_cierre, config.forma_ee)
     area_min = config.area_min_frac * suav.shape[0] * suav.shape[1]

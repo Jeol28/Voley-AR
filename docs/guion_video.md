@@ -53,7 +53,7 @@ Preparación antes de grabar:
 |---|---|---|---|---|
 | 2:40 | 1 · Calibración | Rectas curvadas por la lente vs. imagen corregida; f y k1; "Z = 58 cm con calibración (75 sin ella)". | Apagar la calibración: la distancia salta y los golpes empiezan a salir inválidos. | `core/calibracion.py` → `corregir_distorsion`, `distancia_por_tamano` |
 | 3:15 | 2 · Filtros | Zona de las manos antes y después del suavizado, bordes de Canny; el ruido baja. | Cambiar a mediana o bilateral, y a "ninguno" para ver el ruido. | `core/filtros.py` → `suavizar`, `canny`, `convolucion_manual` |
-| 3:45 | 3 · Histogramas | El histograma Cr-Cb de la piel de cada jugador (son distintos) y la retroproyección; contraste con CLAHE. | Subir el clip de CLAHE. | `core/histogramas.py` → `calibrar_piel`, `retroproyeccion` |
+| 3:45 | 3 · Histogramas | El histograma Cr-Cb de la piel de cada jugador, aprendido solo de su mano (son distintos), y la retroproyección; contraste con CLAHE. | Subir el clip de CLAHE. | `core/histogramas.py` → `calibrar_piel`, `retroproyeccion` |
 | 4:15 | 4 · Umbralización | La curva de Otsu de cada mitad con su T; la máscara binaria. | Subir el umbral mínimo hasta que la mano se rompa. | `core/umbralizacion.py` → `otsu_manual` |
 | 4:45 | 5 · Morfología | Máscara antes/después: regiones de decenas a pocas. | Cierre de 9 px: los dedos se pegan (y el conteo falla). | `core/morfologia.py` → `limpiar_mascara` |
 | 5:20 | 6 · Segmentación | Mano blanca, brazo naranja, cara roja (Viola-Jones); pasar la mano por delante de la cara y ver el watershed. | Corte por distancia vs. por ancho. | `core/segmentacion.py` → `detectar_caras`, `separar_de_la_cara`, `separar_mano_brazo` |

@@ -2,15 +2,16 @@
 
 Una cámara web y dos jugadores lado a lado frente a ella (o uno contra la IA).
 La mitad izquierda de la imagen es del jugador 1, la derecha del jugador 2, y la
-cancha, la red y el balón se dibujan encima. Lo único físico son las manos.
+cancha, la red y el balón se dibujan encima. Golpea cualquier cosa que se mueva
+(una mano, un cuaderno…); lo quieto es entorno.
 
 Se juega como cualquier juego: un menú de inicio (contra la IA, 2 jugadores,
-ajustes), la calibración de la piel, la partida, la pausa (ESC) y la revancha.
+ajustes), la partida, la pausa (ESC) y la revancha. No hay que calibrar la piel:
+el juego la aprende solo de las manos que reconoce.
 Todo se puede elegir con el mouse o con las teclas que aparecen en los botones.
 
 Atajos durante la partida:
-    ESPACIO  capturar el color de la piel (al inicio)
-    ESC      pausa (seguir, recalibrar la piel, reiniciar, menú, salir)
+    ESC      pausa (seguir, reiniciar, menú, salir)
     V / B    siguiente / anterior tema: cómo te ve el juego, en vivo (calibración, filtros,
              histogramas, umbralización, morfología, segmentación, caracterización, transformers)
     [ / ]    cambiar el parámetro del tema que se está viendo
@@ -72,7 +73,8 @@ PUNTOS = (7, 11, 15)
 
 @dataclass
 class EstadoJugador:
-    piel: object = None
+    piel: object = None  # histogramas de la piel, aprendidos solos de la mano confirmada
+    n_aprendizajes: int = 0
     z_ref: float | None = None  # distancia de referencia (cm) al plano de juego
     muestras: list = field(default_factory=list)
     delante: bool | None = None  # Depth Anything: mano delante de la cara
@@ -112,7 +114,7 @@ class Juego:
         self.estado_pipe = pl.EstadoPipeline()
         self.jugadores = {lado: EstadoJugador() for lado in self.lados}
         self.partida = self._crear_partida()
-        self.fase = "calibrar_piel"
+        self.fase = "jugando"  # se juega de una: la piel se aprende sola
         self.pantalla = "menu" if op.menu else "juego"  # menu, ajustes o juego
         self.pausado = False
         self.botones: list = []
@@ -185,7 +187,7 @@ class Juego:
         self.partida = self._crear_partida()
         if self.sintetico and len(self.fuente.jugadores) > 1:
             self.fuente.jugadores[1].mano_visible = self.op.modo == "2j"
-        self.fase = "jugando" if all(j.piel is not None for j in self.jugadores.values()) else "calibrar_piel"
+        self.fase = "jugando"
         self.pantalla, self.pausado, self.t_cuenta = "juego", False, None
 
     def _crear_partida(self) -> Partida:
@@ -241,12 +243,6 @@ class Juego:
             self.pausado = False
         elif accion == "revancha":
             self.nueva_partida()
-        elif accion == "piel":
-            self.fase, self.pausado = "calibrar_piel", False
-            for j in self.jugadores.values():
-                j.piel, j.z_ref, j.muestras = None, None, []
-        elif accion == "listo" and self.fase == "calibrar_piel":
-            self.t_cuenta = time.perf_counter() + 1.5
         elif accion == "owl":
             self.usar_owl = not self.usar_owl
         return True
@@ -271,7 +267,7 @@ class Juego:
             return [Boton("Revancha", "revancha", "r", principal=True), Boton("Menú principal", "menu", "m"),
                     Boton("Salir", "salir", "q")]
         if self.pausado:
-            return [Boton("Seguir", "seguir", "s", principal=True), Boton("Recalibrar la piel", "piel", "p"),
+            return [Boton("Seguir", "seguir", "s", principal=True),
                     Boton("Reiniciar la partida", "reiniciar", "r"), Boton("Menú principal", "menu", "m"),
                     Boton("Salir", "salir", "q")]
         return []
@@ -323,13 +319,6 @@ class Juego:
             from voleyar.juego.vistas import lente
 
             img, lineas_tema = lente(self, res, img, self.vista)
-        if self.fase == "calibrar_piel":
-            img = self._paso_calibrar_piel(frame, res, img, ahora)
-            if self.vista != "juego":
-                from voleyar.juego.vistas import tarjeta
-
-                img = tarjeta(self, img, self.vista, lineas_tema)
-            return img
 
         # --- profundidad (hilo aparte, cada N frames) -----------------------------
         mapa = self._modelos(res, ahora)
@@ -360,6 +349,7 @@ class Juego:
                 entradas[lado] = None
         if self.usar_owl:
             entradas = self._entradas_owl(res, entradas)
+        self._aprender_piel(res)
 
         # --- partida y render ---------------------------------------------------------------
         if not self.pausado:
@@ -418,6 +408,35 @@ class Juego:
         if self.owl is not None and self.owl.resultado is not None:
             self.ultimo_owl = self.owl.resultado
         return mapa
+
+    def _aprender_piel(self, res: pl.ResultadoFrame) -> None:
+        """La piel se aprende sola: histogramas H-S y Cr-Cb de la mano ya confirmada.
+
+        Sin modelo, la piel sale del rango fijo de YCrCb. En cuanto una mano pasa la
+        validación de forma y la histéresis, sus píxeles construyen el histograma
+        (y a partir de ahí se usa retroproyección + Otsu). Se refresca cada
+        ``CADA`` frames mezclando con el anterior para seguir los cambios de luz
+        sin que un frame malo lo eche a perder.
+        """
+        CADA, PESO_NUEVO = 30, 0.3
+        from voleyar.core import histogramas as his
+
+        for lado in self.lados:
+            r, j = res.manos[lado], self.jugadores[lado]
+            if not r.hay_mano or r.presente is not True or r.mascara_mano is None:
+                continue
+            if j.piel is not None and self.n_frame % CADA:
+                continue
+            try:
+                nueva = his.calibrar_piel(res.suavizada, mascara=r.mascara_mano)
+            except ValueError:
+                continue
+            if j.piel is not None:
+                nueva = his.ModeloPiel(cv2.addWeighted(j.piel.hist_hs, 1 - PESO_NUEVO, nueva.hist_hs, PESO_NUEVO, 0),
+                                       cv2.addWeighted(j.piel.hist_crcb, 1 - PESO_NUEVO, nueva.hist_crcb, PESO_NUEVO, 0),
+                                       nueva.n_pixeles)
+            j.piel = nueva
+            j.n_aprendizajes += 1
 
     def _contacto(self, lado: int, res: pl.ResultadoFrame, ahora: float):
         """¿Algo en movimiento (no el fondo) cubre el balón en la mitad de este jugador?
@@ -488,52 +507,6 @@ class Juego:
                                           "OWLv2", prev.valida if prev else None)
         return nuevas
 
-    def _paso_calibrar_piel(self, frame, res, img, ahora) -> np.ndarray:
-        H, W = img.shape[:2]
-        tam = max(18, H // 26)
-        rects = {lado: pl.recuadro_piel(img.shape, lado) for lado in self.lados}
-        if self.sintetico:  # las manos virtuales se colocan solas sobre su recuadro
-            K = res.modelo.K
-            for lado, (x, y, w, h) in rects.items():
-                jug = self.fuente.jugadores[0 if lado < 0 else 1]
-                u, v = x + w / 2, y + h / 2
-                jug.mano = ((u - K[0, 2]) / K[0, 0] * jug.distancia, (v - K[1, 2]) / K[1, 1] * jug.distancia)
-            if self.t_cuenta is None:
-                self.t_cuenta = ahora + 0.5
-        for lado, (x, y, w, h) in rects.items():
-            cv2.rectangle(img, (x, y), (x + w, y + h), vis.BGR_NARANJA, 3, cv2.LINE_AA)
-            nombre = self.partida.nombres[QUIEN[lado]]
-            vis.poner_texto(img, nombre, (x, y + h + 8), tam - 2, vis.BGR_NEUTRO, fondo=vis.BGR_GRAFITO)
-        if len(self.lados) == 2:
-            cv2.line(img, (W // 2, 0), (W // 2, H), vis.BGR_NEUTRO, 1, cv2.LINE_AA)
-        vis.poner_texto(img, "Calibración de la piel", (20, 18), tam + 6, vis.BGR_NEUTRO, True, fondo=vis.BGR_GRAFITO)
-        quien = "Cada jugador cubre su recuadro" if len(self.lados) == 2 else "Cubre el recuadro"
-        web = self.op.interfaz == "web"
-        if len(self.lados) == 2:
-            lineas = [f"{quien} con la palma",
-                      f"a la distancia de juego y {'pulsen ¡Listo!' if web else 'presionen ESPACIO'}"]
-        else:
-            lineas = ["Cubre el recuadro con la palma",
-                      f"a la distancia de juego y {'pulsa ¡Listo!' if web else 'presiona ESPACIO'}"]
-        for k, linea in enumerate(lineas):
-            vis.poner_texto(img, linea, (20, 24 + (tam + 14) * (k + 1)), tam, vis.BGR_NEUTRO, fondo=vis.BGR_GRAFITO)
-        if self.t_cuenta is not None:
-            falta = self.t_cuenta - ahora
-            if falta <= 0:
-                try:
-                    for lado, rect in rects.items():
-                        self.jugadores[lado].piel = pl.calibrar_piel_en_frame(frame, rect, self.modelo_camara,
-                                                                              self.config)
-                    self.fase = "jugando"
-                    self.partida.reiniciar()
-                except ValueError as e:
-                    print("Calibración de piel fallida:", e)
-                self.t_cuenta = None
-            else:
-                vis.poner_texto(img, f"{falta:.1f}", (W // 2 - 20, H // 2 - 30), tam + 24, vis.BGR_NARANJA, True,
-                                fondo=vis.BGR_GRAFITO)
-        return img
-
     # ------------------------------------------------------------ teclado/mouse
     def tecla(self, k: int) -> bool:
         """Procesa una tecla. Devuelve False para salir."""
@@ -551,8 +524,6 @@ class Juego:
             return True
         if k == 27:
             return self.accion("pausa")
-        if k == ord(" "):
-            return self.accion("listo")
         acciones = {ord("v"): "vista_sig", ord("d"): "vista_sig", ord("b"): "vista_ant", ord("]"): "param_mas",
                     ord("["): "param_menos", ord("c"): "calibracion", ord("o"): "owl", ord("p"): "pausa",
                     ord("r"): "reiniciar", ord("q"): "pausa", 9: "vista_sig"}
