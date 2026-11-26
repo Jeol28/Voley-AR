@@ -108,51 +108,65 @@ y pega el tablero sobre cartón para que quede plano.
    0.5 px es bueno). El resultado se guarda en `config/camara.json`, que cargan el juego y la UI.
 4. Comprueba la ventana "Original / Sin distorsión": las rectas cerca de los bordes deben quedar rectas.
 
-También se puede calibrar desde la pestaña **Calibración** de la UI. Su subpestaña **Distancia de la mano: con y sin
-calibración** muestra la distancia estimada de cada mano con la `K` calibrada y con la aproximada (f = ancho). En la
+También se puede calibrar desde el juego en el navegador (**Calibrar cámara**, en el menú de inicio). En el
+laboratorio, la subpestaña **Distancia de la mano: con y sin calibración** muestra la distancia estimada de cada mano con la `K` calibrada y con la aproximada (f = ancho). En la
 escena de ejemplo: con calibración, 56 y 61 cm (reales: 60 y 64); sin calibración, 77 y 83 cm.
 
 ## Cómo jugar
 
+Hay dos formas, con las mismas reglas y los mismos menús.
+
+**En una ventana (lo más fluido):**
+
 ```bash
-python jugar.py --modo 2j          # dos jugadores (cámara 0, con config/camara.json)
-python jugar.py                    # tú contra la IA
-python jugar.py --camara 1         # otra cámara
+python jugar.py                    # abre el menú del juego
+python jugar.py --modo 2j          # directo a una partida de dos jugadores
 python jugar.py --sintetico        # sin cámara: el mouse mueve la mano del jugador 1
 python jugar.py --sin-profundidad  # sin Depth Anything (más rápido)
-python jugar.py --dificultad dificil
 ```
 
-1. Pongan la cámara frente a ustedes, a unos 50-75 cm: el jugador 1 a la izquierda y el jugador 2 a la derecha. Buena
-   luz y, si se puede, mangas largas oscuras.
-2. Aparece un **recuadro naranja** en la mitad de cada jugador. Cúbranlo con la palma, a la distancia a la que van a
-   jugar, y pulsen `ESPACIO`: se calibra la piel de cada uno por separado.
-3. Durante los primeros segundos se mide la distancia de cada mano, que define su plano de juego. A jugar.
+**En el navegador:**
+
+```bash
+python app.py                      # http://127.0.0.1:7860 (o el Space en línea)
+```
+
+1. En el **menú de inicio** elige **Contra la IA** o **2 jugadores**. En **Ajustes** están la dificultad de la IA, los
+   puntos para ganar (7, 11 o 15), "Ver cómo te detecta" y "Usar la calibración" (para comparar). Desde el inicio
+   también se abren **Cómo se juega** y **Calibrar cámara**, que es un asistente con el tablero.
+2. Pongan la cámara frente a ustedes, a unos 50-75 cm: el jugador 1 a la izquierda y el jugador 2 a la derecha.
+3. Aparece un **recuadro naranja** en la mitad de cada jugador. Cúbranlo con la palma, a la distancia a la que van a
+   jugar, y pulsen **¡Listo!** (o `ESPACIO` en la ventana): se aprende el color de la piel de cada uno.
+4. Durante los primeros segundos se mide la distancia de cada mano (su plano de juego). A jugar. Al terminar,
+   **Revancha** o **Menú principal**.
+
+En la ventana todo se elige con el mouse o con la tecla que aparece en cada botón. Atajos durante la partida:
 
 | Tecla | Acción |
 |---|---|
 | `ESPACIO` | capturar la piel de cada jugador |
-| `D` | panel de depuración: máscaras de piel, caras excluidas, contornos, casco convexo, puntas, distancias, profundidad y FPS |
-| `C` | alternar con calibración / sin calibración |
+| `ESC` | pausa: seguir, recalibrar la piel, reiniciar, menú principal o salir |
+| `D` | ver cómo te detecta: máscaras de piel, caras, contornos, casco convexo, puntas, distancias, profundidad y FPS |
+| `C` | con calibración / sin calibración |
 | `O` | detector de la mano: clásico / OWLv2 |
-| `P` | recalibrar la piel |
-| `R` | reiniciar la partida |
-| `Q` / `ESC` | salir |
 
 En modo sintético: el mouse mueve la mano del jugador 1, `0`-`5` cambia sus dedos y `W`/`S` la acerca o la aleja. Con
 dos jugadores, `I`/`J`/`K`/`L` mueve la mano del jugador 2 y `N` cambia sus dedos.
 
-## Laboratorio interactivo (UI)
+## Laboratorio: el juego por dentro
+
+El juego no muestra pestañas técnicas. Para explorar cada tema del curso existe el **laboratorio**, en
+`/laboratorio` (enlazado desde "Cómo se juega") o con:
 
 ```bash
-python app.py            # http://127.0.0.1:7860
+python laboratorio.py              # http://127.0.0.1:7861
 ```
 
-La UI es de Gradio y corre en local. Tiene una pestaña por tema (Calibración, Filtros, Histogramas, Umbralización,
-Morfología, Segmentación, Caracterización y Transformers), más **Pipeline** y **Jugar**. Cada pestaña acepta la
-**cámara web en vivo** (`gr.Image` con streaming), una **imagen subida** o una **escena de ejemplo sintética** de dos
-personas con distancias conocidas. Cada una tiene sliders para los parámetros, el resultado junto a la original y un
-desplegable **"¿Qué está pasando?"** con la teoría y las fórmulas.
+Tiene una pestaña por tema (Calibración, Filtros, Histogramas, Umbralización, Morfología, Segmentación,
+Caracterización y Transformers), más **Pipeline**. Cada pestaña acepta la **cámara web en vivo** (`gr.Image` con
+streaming), una **imagen subida** o una **escena de ejemplo sintética** de dos personas con distancias conocidas. Cada
+una tiene sliders para los parámetros, el resultado junto a la original y un desplegable **"¿Qué está pasando?"** con la
+teoría y las fórmulas.
 
 La pestaña **Pipeline** muestra los 9 pasos sobre el mismo frame:
 
@@ -165,8 +179,6 @@ La pestaña **Pipeline** muestra los 9 pasos sobre el mismo frame:
 7. casco convexo y puntas;
 8. distancia y punto en el plano de la red;
 9. render AR.
-
-La pestaña **Jugar** permite jugar en el navegador o abrir el juego en una ventana.
 
 ## Despliegue en Hugging Face Spaces (ZeroGPU)
 
@@ -183,19 +195,19 @@ sube al Space con hardware `zero-a10g`. Diferencias de la versión en línea:
   `detectar_manos`). En local el decorador no hace nada.
 - **Estado por sesión:** la calibración y la piel de cada visitante viven en su `gr.State`, no en el disco del servidor.
   La calibración se descarga como `camara.json`.
-- **Jugar en el navegador:** el servidor no tiene ventana de OpenCV. La pestaña Jugar recibe la cámara del navegador y
-  cada frame pasa por el mismo `Juego.paso`. Unos botones reemplazan a las teclas.
+- **Jugar en el navegador:** el servidor no tiene ventana de OpenCV. La página del juego recibe la cámara del navegador
+  y cada frame pasa por el mismo `Juego.paso`. Unos botones reemplazan a las teclas.
 
 ## Estrategia de ramificación
 
 Se usó un flujo tipo *Git Flow* simplificado:
 
-- **`main`**: versiones estables y entregables (tags `v1.0.0`, `v1.1.0` y `v2.0.0`). Solo recibe merges desde `develop`.
+- **`main`**: versiones estables y entregables (tags `v1.0.0`, `v1.1.0`, `v2.0.0` y `v2.1.0`). Solo recibe merges desde `develop`.
 - **`develop`**: rama de integración. Cada tema entra cuando sus pruebas pasan.
 - **`feature/<tema>`**: una rama por módulo. Para la v1: `feature/calibracion`, `feature/filtros`,
   `feature/histogramas`, `feature/umbralizacion`, `feature/morfologia`, `feature/segmentacion`,
   `feature/caracterizacion`, `feature/transformers`, `feature/juego`, `feature/ui` y `feature/docs`. Después vinieron
-  `feature/despliegue` (v1.1.0) y `feature/multijugador` (v2.0.0). Cada rama sale de `develop`, se trabaja con commits
+  `feature/despliegue` (v1.1.0), `feature/multijugador` (v2.0.0) y `feature/interfaz-juego` (v2.1.0). Cada rama sale de `develop`, se trabaja con commits
   pequeños ([Conventional Commits](https://www.conventionalcommits.org/es/)) y vuelve con `git merge --no-ff`.
 
 ```mermaid
@@ -265,6 +277,13 @@ gitGraph
     merge feature/multijugador
     checkout main
     merge develop tag: "v2.0.0"
+    checkout develop
+    branch feature/interfaz-juego
+    commit id: "feat: menús del juego"
+    checkout develop
+    merge feature/interfaz-juego
+    checkout main
+    merge develop tag: "v2.1.0"
 ```
 
 ## Arquitectura
@@ -274,8 +293,8 @@ El código sigue una **arquitectura en capas**: cada capa solo llama a la de aba
 ```mermaid
 flowchart TB
     subgraph Presentacion["Presentación"]
-        UI["voleyar/ui · Gradio<br/>una pestaña por tema + Pipeline + Jugar"]
-        BUCLE["voleyar/juego/bucle.py · ventana OpenCV<br/>navegador.py · juego en el navegador"]
+        UI["voleyar/ui · Gradio<br/>juego_web (menús y partida) + laboratorio (/laboratorio)"]
+        BUCLE["voleyar/juego/bucle.py + menus.py · ventana OpenCV<br/>navegador.py · juego en el navegador"]
     end
     subgraph Juego["Dominio del juego"]
         FIS["fisica.py<br/>gravedad, rebotes, red"]
@@ -402,7 +421,9 @@ Ninguna necesita la cámara: usan escenas sintéticas de verdad conocida.
   - cada mano solo en su mitad.
 - **Juego:** física, reglas para 2 jugadores, IA, render, partidas completas sin ventana en ambos modos y el juego del
   navegador con los manejadores de Gradio.
-- **UI:** se construye y cada pestaña procesa cada ejemplo.
+- **Menús y web:** el menú de escritorio (inicio, ajustes, pausa, revancha, clic del mouse) y la página del juego
+  (botón de modo, stream de la cámara, botones de la partida); el laboratorio se construye y cada pestaña procesa
+  cada ejemplo.
 
 ## Limitaciones
 
@@ -428,8 +449,8 @@ Ninguna necesita la cámara: usan escenas sintéticas de verdad conocida.
 voleyar/
   core/      calibracion, filtros, histogramas, umbralizacion, morfologia, segmentacion,
              caracterizacion, transformers_models, pipeline, config
-  juego/     fisica, ia_rival, partida, render_ar, asincrono, bucle, navegador
-  ui/        app, tema, estado, comunes, pestanas/ (una por tema + pipeline + jugar)
+  juego/     fisica, ia_rival, partida, render_ar, asincrono, bucle, menus, navegador
+  ui/        app, juego_web (la página del juego), laboratorio, tema, estado, comunes, pestanas/ (una por tema)
   utils/     camara, io, visualizacion, sinteticos
   entorno.py detección de Spaces/ZeroGPU
 config/      camara.json (lo crea la calibración)
@@ -437,8 +458,9 @@ scripts/     generar_imprimibles.py, calibrar_camara.py, desplegar_space.py
 despliegue/  requirements.txt y cabecera del README para el Space
 tests/       pruebas por módulo, modo pantalla, juego y UI
 docs/        arquitectura.md, guion_video.md, imprimibles/, capturas/
-app.py       lanza la UI
-jugar.py     lanza el juego
+app.py       el juego en el navegador (+ /laboratorio)
+jugar.py     el juego en una ventana
+laboratorio.py  solo el laboratorio
 ```
 
 ## Licencia

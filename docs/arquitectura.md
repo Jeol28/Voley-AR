@@ -7,7 +7,7 @@ datos, concurrencia y las decisiones que se tomaron a partir de las pruebas.
 
 | Capa | Paquete | Regla |
 |---|---|---|
-| Presentación | `voleyar/ui`, `voleyar/juego/bucle.py`, `voleyar/juego/navegador.py`, `app.py`, `jugar.py` | Maneja eventos, ventanas y widgets. No implementa visión. |
+| Presentación | `voleyar/ui/juego_web.py` (el juego en la web: inicio, ajustes, calibración, partida), `voleyar/ui/laboratorio.py` (pestañas por tema, en `/laboratorio`), `voleyar/juego/bucle.py` + `menus.py` (ventana con menús), `voleyar/juego/navegador.py`, `app.py`, `jugar.py`, `laboratorio.py` | Maneja eventos, menús, ventanas y widgets. No implementa visión. |
 | Dominio del juego | `voleyar/juego` (`fisica`, `ia_rival`, `partida`, `render_ar`) | Reglas y física en unidades de la cancha. `partida.py` no conoce la cámara. |
 | Núcleo de visión | `voleyar/core` | Funciones puras: imagen in → imagen/datos out. Sin Gradio ni `imshow`. |
 | Infraestructura | `voleyar/utils`, `voleyar/entorno.py` | Cámara, JSON, texto con tildes, escenas sintéticas, detección de ZeroGPU. |
