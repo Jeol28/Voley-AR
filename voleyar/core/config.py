@@ -87,3 +87,18 @@ def esquinas_cancha(z: float = 0.0, margen: float = 0.0) -> np.ndarray:
     """Esquinas 3D del rectángulo de juego (sentido antihorario visto desde arriba)."""
     x, y = MEDIO_LARGO + margen, MEDIO_ANCHO + margen
     return np.array([[-x, -y, z], [x, -y, z], [x, y, z], [-x, y, z]], dtype=np.float64)
+
+
+# --------------------------------------------------------------------------- #
+# Modo pantalla (v2): sin cancha impresa, todo virtual; solo las manos son reales
+# --------------------------------------------------------------------------- #
+# La cancha virtual usa las mismas unidades que la física (la cancha de 25 cm de la
+# v1). Una cámara virtual con la K real la encuadra para que ocupe toda la imagen;
+# la red queda en la columna central y separa al jugador 1 (izq.) del 2 (der.).
+# Radio del círculo inscrito en la palma de un adulto (~4 cm), corregido por lo que pierde la máscara
+# en el borde (apertura morfológica): en las escenas sintéticas Z salía ~15 % alta con 4.0.
+PALMA_RADIO_CM = 3.5
+FRACCION_PISO = 0.86  # fila de la imagen (fracción de la altura) donde queda el piso de la cancha
+OCUPACION_CANCHA = 0.92  # fracción del ancho de la imagen que ocupa la cancha
+ANCHO_VISUAL_CANCHA = 3.0  # medio ancho (profundidad) del piso dibujado, en unidades de cancha
+DISTANCIA_JUEGO_CM = 60.0  # distancia típica de las manos a la cámara (se mide al empezar)
