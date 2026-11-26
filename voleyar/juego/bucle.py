@@ -60,6 +60,7 @@ class OpcionesJuego:
     max_frames: int | None = None
     semilla: int | None = None
     menu: bool = False  # empezar en el menú de inicio (ventana)
+    espejo: bool = True  # ver la cámara como un espejo (se ignora con la fuente sintética)
     interfaz: str = "ventana"  # "ventana" (teclas y mouse) o "web" (botones de la página)
 
 
@@ -100,7 +101,8 @@ class Juego:
         if self.modelo_camara is None:
             print("⚠  No hay config/camara.json: se juega SIN calibración. "
                   "Calibra con `python scripts/calibrar_camara.py` o desde la UI.")
-        self.config = pl.ConfigPipeline(usar_calibracion=op.calibrado and self.modelo_camara is not None)
+        self.config = pl.ConfigPipeline(usar_calibracion=op.calibrado and self.modelo_camara is not None,
+                                        espejo=op.espejo and not self.sintetico)
         self.estado_pipe = pl.EstadoPipeline()
         self.jugadores = {lado: EstadoJugador() for lado in self.lados}
         self.partida = self._crear_partida()
@@ -221,6 +223,9 @@ class Juego:
             self.estado_pipe = pl.EstadoPipeline()
             for j in self.jugadores.values():  # la distancia de referencia cambia con la K
                 j.z_ref, j.muestras = None, []
+        elif accion == "espejo":
+            self.config.espejo = not self.config.espejo
+            self.estado_pipe = pl.EstadoPipeline()
         elif accion == "pausa":
             self.pausado = not self.pausado
         elif accion == "seguir":
@@ -252,6 +257,7 @@ class Juego:
             return [Boton(f"Dificultad de la IA: {NOMBRE_DIFICULTAD[self.op.dificultad]}", "dificultad", "d"),
                     Boton(f"Partida a {self.op.puntos} puntos", "puntos", "p"),
                     Boton(f"Usar la calibración: {cal}", "calibracion", "c"),
+                    Boton(f"Cámara como espejo: {'sí' if self.config.espejo else 'no'}", "espejo", "e"),
                     Boton("Volver", "menu", "m", principal=True)]
         if self.op.interfaz == "web":
             return []

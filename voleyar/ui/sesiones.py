@@ -24,7 +24,8 @@ class Sesion:
     estado: EstadoApp = field(default_factory=nuevo_estado)
     juego: Any = None  # voleyar.juego.bucle.Juego
     modo: str = "2j"
-    ajustes: dict = field(default_factory=lambda: {"dificultad": "normal", "puntos": 15, "usar_calibracion": True})
+    ajustes: dict = field(default_factory=lambda: {"dificultad": "normal", "puntos": 15, "usar_calibracion": True,
+                                                   "espejo": True})
     gestor: Any = None  # GestorCapturaCalibracion de la calibración por video
     ultimo_tablero: Any = None  # ¿se vio el tablero en el último frame de calibración?
     resultado: Any = None  # última calibración calculada (aún sin usar)

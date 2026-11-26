@@ -219,6 +219,9 @@ def _preparar(s: sesiones.Sesion) -> None:
     if j.modelo_camara is None and s.estado.modelo_camara is not None:
         j.modelo_camara = s.estado.modelo_camara
     j.config.usar_calibracion = bool(a["usar_calibracion"]) and j.modelo_camara is not None
+    if j.config.espejo != bool(a.get("espejo", True)):
+        j.config.espejo = bool(a.get("espejo", True))
+        j.estado_pipe = type(j.estado_pipe)()
 
 
 def empezar(clave: str, modo: str):
@@ -298,9 +301,10 @@ def cambiar(paso: int):
     return manejador
 
 
-def guardar_ajustes(clave: str, dificultad: str, puntos: int, usar_cal: bool) -> None:
+def guardar_ajustes(clave: str, dificultad: str, puntos: int, usar_cal: bool, espejo: bool = True) -> None:
     s = sesiones.obtener(clave)
-    s.ajustes = {"dificultad": dificultad, "puntos": int(puntos), "usar_calibracion": bool(usar_cal)}
+    s.ajustes = {"dificultad": dificultad, "puntos": int(puntos), "usar_calibracion": bool(usar_cal),
+                 "espejo": bool(espejo)}
 
 
 def volver_al_menu(clave: str):
@@ -408,6 +412,8 @@ def construir(demo: gr.Blocks) -> None:
                               label="Dificultad de la IA")
         puntos = gr.Radio([("7", 7), ("11", 11), ("15", 15)], value=15, label="Puntos para ganar")
         usar_cal = gr.Checkbox(label="Usar la calibración de la cámara (apágala para comparar)", value=True)
+        espejo = gr.Checkbox(label="Ver la cámara como un espejo (quien está a tu izquierda sale a la izquierda)",
+                             value=True)
         v2 = gr.Button("Listo", variant="primary", elem_classes="boton-medio")
 
     # ------------------------------------------------------- calibrar cámara
@@ -473,7 +479,7 @@ def construir(demo: gr.Blocks) -> None:
     b_cal.click(lambda: ir("calibrar"), None, pantallas)
     for b in (v1, v3):
         b.click(lambda c: (chip_camara(c), *ir("inicio")), clave, [chip, *pantallas])
-    v2.click(guardar_ajustes, [clave, dificultad, puntos, usar_cal], None).then(lambda: ir("inicio"), None, pantallas)
+    v2.click(guardar_ajustes, [clave, dificultad, puntos, usar_cal, espejo], None).then(lambda: ir("inicio"), None, pantallas)
     b_ia.click(lambda c: empezar(c, "ia"), clave, pantallas)
     b_2j.click(lambda c: empezar(c, "2j"), clave, pantallas)
 

@@ -116,6 +116,22 @@ class ModeloCamara:
         return ModeloCamara(K, self.dist.copy(), ancho, alto, self.calibrada,
                             self.error_rms, self.n_vistas, self.tam_cuadro_cm)
 
+    def espejo(self) -> "ModeloCamara":
+        r"""Modelo de la misma cámara con la imagen volteada horizontalmente (vista de espejo).
+
+        Voltear :math:`u \to (W - 1) - u` equivale a :math:`x \to -x` en coordenadas
+        normalizadas: el punto principal pasa a :math:`c_x' = W - 1 - c_x`; la distorsión
+        radial no cambia y en la tangencial :math:`p_2' = -p_2` (:math:`p_1` se conserva).
+        """
+        K = self.K.copy()
+        K[0, 2] = self.ancho - 1 - K[0, 2]
+        K[0, 1] = -K[0, 1]
+        dist = self.dist.copy()
+        if len(dist) > 3:
+            dist[3] = -dist[3]
+        return ModeloCamara(K, dist, self.ancho, self.alto, self.calibrada, self.error_rms, self.n_vistas,
+                            self.tam_cuadro_cm)
+
     def a_dict(self) -> dict:
         return {
             "K": self.K.tolist(),

@@ -48,7 +48,7 @@ def _sesion_con_juego(modo="2j"):
     fuente = s.FuentePantalla(modelo)
     clave, _ = jw.abrir_pagina(None)
     sesiones.obtener(clave).estado.modelo_camara = modelo  # como si hubiera calibrado en esta sesión
-    jw.guardar_ajustes(clave, "facil", 7, True)
+    jw.guardar_ajustes(clave, "facil", 7, True, espejo=False)  # los frames sintéticos ya están sin espejo
     pantallas = jw.empezar(clave, modo)
     jw.frame_juego(fuente.leer()[1], clave)
     juego = sesiones.obtener(clave).juego
