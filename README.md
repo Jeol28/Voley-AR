@@ -27,7 +27,7 @@ WebRTC), pero corre una versión anterior y su video necesita un servidor TURN (
 | | |
 |---|---|
 | ![Partida con el panel de depuración](docs/capturas/juego_depuracion.png) | ![Con y sin calibración](docs/capturas/con_sin_calibracion.png) |
-| *Partida de dos jugadores con el panel de depuración (tecla D)* | *Distancia de las manos con y sin calibración* |
+| *Partida de dos jugadores* | *Distancia de las manos con y sin calibración* |
 | ![Vista de un tema en la partida](docs/capturas/ui_pipeline.png) | ![Vista de transformers](docs/capturas/ui_transformers.png) |
 | *Vista de morfología en plena partida* | *Vista de transformers: profundidad y OWLv2* |
 
